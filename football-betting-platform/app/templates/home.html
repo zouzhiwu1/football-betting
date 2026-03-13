@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}首页 - 足球博彩平台{% endblock %}
+{% block content %}
+  <h1>欢迎，<span id="username"></span></h1>
+  <p style="color:#64748b; margin-bottom: 16px;">您已登录。</p>
+  <p style="margin-bottom: 24px;">
+    <a href="/curves" style="color:#2563eb; text-decoration:none;">曲线图查询</a> — 按日期、球队名搜索并查看曲线图
+  </p>
+  <a href="/login" id="logout-link" style="display:inline-block; padding:12px 24px; background:#e2e8f0; color:#475569; border-radius:8px; text-decoration:none; font-size:14px;">退出登录</a>
+{% endblock %}
+{% block extra_js %}
+<script>
+(function() {
+  var token = localStorage.getItem('token');
+  var username = localStorage.getItem('username') || '用户';
+  document.getElementById('username').textContent = username;
+  document.getElementById('logout-link').onclick = function() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('username');
+  };
+})();
+</script>
+{% endblock %}

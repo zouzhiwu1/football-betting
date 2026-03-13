@@ -1,0 +1,28 @@
+# -*- coding: utf-8 -*-
+"""
+短信发送：默认 mock（控制台输出验证码）。
+生产环境可替换为阿里云/腾讯云等，见 README。
+"""
+import random
+import string
+
+from config import SMS_PROVIDER, SMS_CODE_LENGTH
+
+
+def generate_code(length=None):
+    length = length or SMS_CODE_LENGTH
+    return "".join(random.choices(string.digits, k=length))
+
+
+def send_verification_code(phone: str, code: str) -> bool:
+    """发送验证码。返回是否发送成功。"""
+    if SMS_PROVIDER == "mock" or not SMS_PROVIDER:
+        print(f"[SMS Mock] 手机号: {phone}, 验证码: {code}")
+        return True
+    # 可在此接入阿里云/腾讯云等，例如：
+    # return send_aliyun_sms(phone, code)
+    return False
+
+
+def send_sms(phone: str, code: str) -> bool:
+    return send_verification_code(phone, code)
