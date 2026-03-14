@@ -1,6 +1,6 @@
 [run]
 omit =
-    crawl.py
+    crawl_real.py
     scraper.py
     tests/*
 

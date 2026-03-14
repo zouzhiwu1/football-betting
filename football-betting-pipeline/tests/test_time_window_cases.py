@@ -54,7 +54,7 @@ def test_case1_before_cutoff(tmp_path, monkeypatch):
     assert start_arg == "2026031012"
     assert end_arg == "2026031111"
 
-    # crawl.py / scraper：自然日目录
+    # crawl_real.py / scraper：自然日目录
     natural_folder = _scraper_date_folder_from_now(now)
     assert natural_folder == "20260311"
 
@@ -118,7 +118,7 @@ def test_case2_after_cutoff(tmp_path, monkeypatch):
     assert start_arg == "2026031112"
     assert end_arg == "2026031211"
 
-    # crawl.py / scraper：自然日目录仍是当天
+    # crawl_real.py / scraper：自然日目录仍是当天
     natural_folder = _scraper_date_folder_from_now(now)
     assert natural_folder == "20260311"
 

@@ -4,7 +4,7 @@
 按文件名排序后合并为一个一览表，输出文件名为 Master{YYYYMMDD}.csv。
 
 新版本约定：
-- crawl.py 下载文件时只按“自然日”建目录（YYYYMMDD），与临界点无关。
+- crawl_real.py 下载文件时只按“自然日”建目录（YYYYMMDD），与临界点无关。
 - merge_data.py 不再按“整天目录”处理，而是接收两个时间点参数：
     * 起始时间点（含），格式 YYYYMMDDHH
     * 终止时间点（含），格式 YYYYMMDDHH

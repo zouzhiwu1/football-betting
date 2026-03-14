@@ -72,7 +72,7 @@ class ZhiyunScraper:
         """主流程：打开页面 -> 足球 -> 即时比分 -> 足彩 -> 北单，获取列表并下载 Excel（跳过隐藏场次）。"""
         now = _now_in_tz()
         self._run_time_suffix = now.strftime("%Y%m%d%H")
-        log = logging.getLogger("crawl")
+        log = logging.getLogger("crawl_real")
         log.info("[爬虫] 本次运行时间戳（文件名用）: %s （当前时区时间: %s）", self._run_time_suffix, now.strftime('%Y-%m-%d %H:%M'))
         self.driver.get(self.base_url)
         wait = WebDriverWait(self.driver, WAIT_ELEMENT)
@@ -339,7 +339,7 @@ class ZhiyunScraper:
                 return
             except Exception as e:
                 ts = _now_in_tz().strftime("%Y-%m-%d %H:%M:%S")
-                logging.getLogger("crawl").warning(
+                logging.getLogger("crawl_real").warning(
                     "%s 赛事选择/一级赛事 未应用（%s），继续用当前列表", ts, e
                 )
                 return
@@ -629,7 +629,7 @@ class ZhiyunScraper:
             except Exception:
                 before_files = set()
 
-            logging.getLogger("crawl").info("开始下载第 %d 场 Excel: %s vs %s", index, home, away)
+            logging.getLogger("crawl_real").info("开始下载第 %d 场 Excel: %s vs %s", index, home, away)
             try:
                 clicked = self.driver.execute_script("""
                     var el = document.getElementById('downobj');
@@ -778,7 +778,7 @@ class ZhiyunScraper:
                 time.sleep(1.0)
 
             if not new_path:
-                logging.getLogger("crawl").warning(
+                logging.getLogger("crawl_real").warning(
                     "在 30 秒内未检测到新增 Excel 文件（%s vs %s），跳过重命名", home, away
                 )
                 return
@@ -794,7 +794,7 @@ class ZhiyunScraper:
                 os.rename(new_path, dest_path)
             root = os.path.abspath(os.path.join(self.download_dir, os.pardir))
             rel = os.path.relpath(dest_path, root)
-            logging.getLogger("crawl").info("已保存为: %s", rel)
+            logging.getLogger("crawl_real").info("已保存为: %s", rel)
         except Exception as e:
             print(f"重命名下载文件失败: {e}")
 

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 按顺序执行完整流程：
-  1. crawl.py      — 抓取并下载数据
+  1. crawl_real.py — 抓取即时比分数据并下载
   2. merge_data.py — 合并为一览表 Master{YYYYMMDD}.csv
   3. calc_car.py   — 计算综合评估并输出 CAR{YYYYMMDD}.xlsx
   4. plot_car.py   — 根据综合评估表生成欧赔/凯利曲线图
@@ -15,7 +15,7 @@
 用法:
   python main.py
     - 无参数：按当前时间和跨天临界点 CUTOFF_HOUR 自动计算本次统计区间 [start,end]，
-      然后依次执行 crawl.py、merge_data.py start end、calc_car.py start end、plot_car.py start end。
+      然后依次执行 crawl_real.py、merge_data.py start end、calc_car.py start end、plot_car.py start end。
 
   python main.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
     - 显式指定本次统计区间 [start,end]，直接传递给各批处理脚本。
@@ -139,7 +139,7 @@ def main():
     )
 
     steps = [
-        ("crawl.py", ["crawl.py", start_arg, end_arg]),
+        ("crawl_real.py", ["crawl_real.py", start_arg, end_arg]),
         ("merge_data.py", ["merge_data.py", start_arg, end_arg]),
         ("calc_car.py", ["calc_car.py", start_arg, end_arg]),
         ("plot_car.py", ["plot_car.py", start_arg, end_arg]),

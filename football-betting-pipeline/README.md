@@ -33,7 +33,7 @@ python main.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
   - 当前时间在当日 `CUTOFF_HOUR` 及之后：`start = 今天 CUTOFF_HOUR`，`end = 明天 CUTOFF_HOUR-1`。
 - 显式传入 `<起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>` 时，会直接以该区间作为 [start,end]。
 - 之后 `main.py` 会依次调用：
-  - `crawl.py start end`
+  - `crawl_real.py start end`
   - `merge_data.py start end`
   - `calc_car.py start end`
   - `plot_car.py start end`
@@ -42,14 +42,14 @@ python main.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
 
 ## 脚本说明
 
-### crawl.py — 抓取数据
+### crawl_real.py — 抓取即时比分数据
 
-**功能**：打开智云比分页，进入「足球」→「足彩」下的北单等入口，等待表格刷新后，逐场点击导出并下载对应的 `.xls` 文件。文件按配置的下载目录与跨天临界点保存到子目录 `{YYYYMMDD}/`，文件名含主客队与时间点（如 `主队 VS 客队2026030807.xls`）。
+**功能**：打开智云比分页，进入「足球」→「即时比分」→「足彩」→「北单」，等待表格刷新后，逐场点击导出并下载对应的 `.xls` 文件。文件按配置的下载目录与跨天临界点保存到子目录 `{YYYYMMDD}/`，文件名含主客队与时间点（如 `主队 VS 客队2026030807.xls`）。
 
 **用法**（仅接收两个时间点参数，形式与其它批处理脚本一致）：
 
 ```bash
-python crawl.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
+python crawl_real.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
 ```
 
 当前版本中，crawl 实际仍按“执行当下的实时盘口”抓取，时间参数主要用于：
@@ -135,7 +135,7 @@ python plot_car.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
 **1. 使用 .env 文件（推荐）**
 
 在项目根目录（与 `main.py` 同级）创建 `.env`，每行一个变量，格式：`变量名=值`。  
-运行 `python main.py` 或 `python crawl.py ...` 时会自动加载，无需在终端里重复设置。
+运行 `python main.py` 或 `python crawl_real.py ...` 时会自动加载，无需在终端里重复设置。
 
 ```bash
 # 示例：只改路径和是否无头

@@ -25,7 +25,7 @@ football-betting/
 ├── README.md                    # 本文件
 ├── football-betting-pipeline/   # 模块 1：爬虫 + 合并 + 计算 + 曲线图
 │   ├── main.py                  # 主流程入口（crawl → merge → calc → plot）
-│   ├── crawl.py, merge_data.py, calc_car.py, plot_car.py
+│   ├── crawl_real.py, merge_data.py, calc_car.py, plot_car.py
 │   ├── config.py                # 配置（可被环境变量 / .env 覆盖）
 │   ├── requirements.txt
 │   ├── .env.example

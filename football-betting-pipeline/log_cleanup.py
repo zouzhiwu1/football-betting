@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 删除指定目录下超过指定天数的日志文件，避免占用过多磁盘空间。
-供 crawl.py、merge_data.py、calc_car.py、plot_car.py 在执行前调用。
+供 crawl_real.py、merge_data.py、calc_car.py、plot_car.py 在执行前调用。
 """
 import os
 import time

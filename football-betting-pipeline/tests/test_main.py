@@ -44,7 +44,7 @@ def test_main_no_args_uses_default_window_and_runs_steps(monkeypatch, tmp_path):
     monkeypatch.setattr("main.subprocess.run", fake_run)
     main()
     assert len(run_calls) == 4
-    assert "crawl.py" in run_calls[0]
+    assert "crawl_real.py" in run_calls[0]
     assert "merge_data.py" in run_calls[1]
     assert "calc_car.py" in run_calls[2]
     assert "plot_car.py" in run_calls[3]
