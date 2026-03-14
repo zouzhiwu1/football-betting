@@ -1,20 +1,6 @@
-# 足球比分爬虫（Python 版）
+# 网络爬虫
 
 本仓库对应整体系统中的 **模块 1：数据抓取与曲线图生成**。打开智云比分页，抓取数据后经合并、计算，最终生成曲线图图片。
-
-## 系统架构（三模块）
-
-整体系统分为三个模块，本仓库仅负责 **模块 1**：
-
-| 模块 | 职责 | 本仓库 |
-|------|------|--------|
-| **1. 数据抓取与曲线图生成** | 爬虫抓取、数据处理（merge/calc）、生成曲线图图片 | ✅ 本仓库（football-betting-pipeline） |
-| **2. 用户管理系统** | 注册、登录、支付、**查询**（按日期/球队查曲线图等） | ❌ 独立系统，服务端提供 API 与查询页面 |
-| **3. 手机客户端** | React 实现，对接用户管理系统 | ❌ 独立前端项目 |
-
-- **模块 1** 输出：按日期目录存放的曲线图（`DOWNLOAD_DIR/{YYYYMMDD}/{主队}_VS_{客队}_曲线.png`），可供模块 2 读取并对外提供查询。
-- **模块 2**（用户管理系统，如 football-betting-platform）提供「曲线图查询」页面与 API，按日期、球队名搜索并展示曲线图。
-- **模块 3** 通过模块 2 的接口访问数据与功能。
 
 ## 环境
 
@@ -322,41 +308,3 @@ launchctl load ~/Library/LaunchAgents/com.football.betting.pipeline.plist
 **查看日志**：若未重定向，cron 输出会发到用户邮件；可改为 `... main.py >> /tmp/football-crawler.log 2>&1` 便于排查。
 
 ---
-
-## 项目更名与 Git 仓库
-
-本项目已统一使用名称 **football-betting-pipeline**。若你从旧名 `football-betting-python` 更名，需做以下步骤：
-
-**1. 本地目录更名**
-
-```bash
-cd <WORK_SPACE 所在目录，如 ~/Documents/cursor>
-mv football-betting-python football-betting-pipeline
-cd football-betting-pipeline
-```
-
-**2. 虚拟环境**（因路径变更，需重建）
-
-```bash
-rm -rf .venv
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-```
-
-**3. 远程仓库更名（GitHub / GitLab 等）**
-
-- 在网站上将仓库名称改为 `football-betting-pipeline`（Settings → Repository name）。
-
-**4. 本地更新 remote 地址**
-
-```bash
-git remote -v
-# 将 origin 指向新仓库名（替换为你的用户名/组织名）
-git remote set-url origin https://github.com/你的用户名/football-betting-pipeline.git
-# 或 SSH：git remote set-url origin git@github.com:你的用户名/football-betting-pipeline.git
-```
-
-**5. macOS 定时任务**（若已配置 launchd）
-
-- 将 `~/Library/LaunchAgents/com.football.betting.main.plist` 中的路径改为新目录 `football-betting-pipeline`，然后重新 load。
-- 或把项目中的 `com.football.betting.main.plist` 复制到 `~/Library/LaunchAgents/` 再 `launchctl unload` → `launchctl load`。
