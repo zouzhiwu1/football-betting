@@ -6,11 +6,11 @@
   <string>com.football.betting.run_final</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/zhiwuzou/Documents/cursor/football-betting/football-betting-pipeline/.venv/bin/python</string>
+    <string>/Users/zhiwuzou/app/football-betting/football-betting-pipeline/.venv/bin/python</string>
     <string>run_final.py</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Users/zhiwuzou/Documents/cursor/football-betting/football-betting-pipeline</string>
+  <string>/Users/zhiwuzou/app/football-betting/football-betting-pipeline</string>
   <key>StartCalendarInterval</key>
   <dict>
     <key>Hour</key>
@@ -19,8 +19,8 @@
     <integer>0</integer>
   </dict>
   <key>StandardOutPath</key>
-  <string>/Users/zhiwuzou/Documents/cursor/football-betting-log/football-betting-run-final.log</string>
+  <string>/Users/zhiwuzou/app/football-betting-log/football-betting-run-final.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/zhiwuzou/Documents/cursor/football-betting-log/football-betting-run-final.err</string>
+  <string>/Users/zhiwuzou/app/football-betting-log/football-betting-run-final.err</string>
 </dict>
 </plist>
