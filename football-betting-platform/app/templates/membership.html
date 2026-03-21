@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}会员信息 - 足球博彩平台{% endblock %}
+{% block extra_css %}
+<style>
+  body .container { max-width: 560px; }
+  h2 { font-size: 1.05rem; margin: 20px 0 10px 0; color: #334155; }
+  .nav-links { margin-bottom: 20px; font-size: 14px; }
+  .nav-links a { color: #2563eb; text-decoration: none; margin-right: 16px; }
+  .nav-links a:hover { text-decoration: underline; }
+  .status-card {
+    padding: 16px 18px; border-radius: 10px; margin-bottom: 20px;
+    border: 1px solid #e2e8f0; background: #f8fafc;
+  }
+  .status-card.member { border-color: #86efac; background: #f0fdf4; }
+  .status-card.not-member { border-color: #fecaca; background: #fef2f2; }
+  .badge { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 14px; font-weight: 600; }
+  .badge.yes { background: #22c55e; color: #fff; }
+  .badge.no { background: #94a3b8; color: #fff; }
+  .expire-line { margin-top: 10px; font-size: 15px; color: #1e293b; }
+  .expire-line strong { color: #15803d; }
+  .days-left { margin-top: 6px; font-size: 13px; color: #64748b; }
+  table.records { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 8px; }
+  table.records th, table.records td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #e2e8f0; }
+  table.records th { color: #64748b; font-weight: 600; }
+  .empty-hint { color: #64748b; font-size: 14px; padding: 12px 0; }
+  .gift-hint { font-size: 13px; color: #64748b; margin-top: 16px; padding-top: 12px; border-top: 1px solid #e2e8f0; }
+  .msg { margin-top: 12px; }
+</style>
+{% endblock %}
+{% block content %}
+  <div class="nav-links">
+    <a href="/home">首页</a>
+    <a href="/recharge">会员充值</a>
+    <a href="/recharge-records">充值信息</a>
+    <a href="/account">账户资料</a>
+    <a href="/curves">曲线图</a>
+    <a href="/login" id="logout-nav">退出登录</a>
+  </div>
+  <h1>会员信息</h1>
+
+  <div id="loading" class="hint">加载中…</div>
+  <div id="main" style="display:none;">
+    <div id="status-card" class="status-card">
+      <div>
+        <span style="color:#64748b;font-size:14px;">当前状态</span>
+        <span class="badge" id="member-badge"></span>
+      </div>
+      <div class="expire-line" id="expire-line" style="display:none;"></div>
+      <div class="days-left" id="days-left" style="display:none;"></div>
+    </div>
+
+    <h2>当前有效权益明细</h2>
+    <p class="hint" style="margin-top:0;">多条记录同时有效时，到期时间取最晚一条；下表列出当前仍在有效期内的所有片段。</p>
+    <div id="records-wrap"></div>
+
+    <div class="gift-hint" id="gift-hint" style="display:none;"></div>
+  </div>
+  <div id="msg-err" class="msg error" style="display:none;"></div>
+{% endblock %}
+{% block extra_js %}
+<script>
+(function() {
+  var token = localStorage.getItem('token');
+  if (!token) {
+    window.location.href = '/login';
+    return;
+  }
+
+  function fmtLocal(iso) {
+    if (!iso) return '—';
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return iso;
+      return d.toLocaleString('zh-CN', { hour12: false });
+    } catch (e) { return iso; }
+  }
+
+  function daysRemaining(iso) {
+    if (!iso) return null;
+    var end = new Date(iso);
+    var now = new Date();
+    var ms = end.getTime() - now.getTime();
+    if (ms <= 0) return 0;
+    return Math.ceil(ms / (86400000));
+  }
+
+  document.getElementById('logout-nav').onclick = function() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('username');
+  };
+
+  fetch('/api/membership/status', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) {
+      if (r.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('username');
+        window.location.href = '/login';
+        return Promise.reject();
+      }
+      return r.json();
+    })
+    .then(function(data) {
+      document.getElementById('loading').style.display = 'none';
+      if (!data || !data.ok) {
+        var el = document.getElementById('msg-err');
+        el.textContent = (data && data.message) || '加载失败';
+        el.style.display = 'block';
+        return;
+      }
+      document.getElementById('main').style.display = 'block';
+
+      var isMember = !!data.is_member;
+      var card = document.getElementById('status-card');
+      var badge = document.getElementById('member-badge');
+      if (isMember) {
+        card.className = 'status-card member';
+        badge.className = 'badge yes';
+        badge.textContent = '会员有效';
+      } else {
+        card.className = 'status-card not-member';
+        badge.className = 'badge no';
+        badge.textContent = '非会员';
+      }
+
+      var expLine = document.getElementById('expire-line');
+      var daysEl = document.getElementById('days-left');
+      if (isMember && data.expires_at) {
+        expLine.style.display = 'block';
+        expLine.innerHTML = '会员到期时间（最晚）：<strong>' + fmtLocal(data.expires_at) + '</strong>';
+        var days = daysRemaining(data.expires_at);
+        if (days !== null) {
+          daysEl.style.display = 'block';
+          daysEl.textContent = days > 0 ? '剩余约 ' + days + ' 天' : '即将到期或已临近边界，请以到期时刻为准';
+        }
+      } else {
+        expLine.style.display = 'none';
+        daysEl.style.display = 'none';
+      }
+
+      var wrap = document.getElementById('records-wrap');
+      var recs = data.active_records || [];
+      if (!recs.length) {
+        wrap.innerHTML = '<p class="empty-hint">当前没有生效中的会员权益。注册赠送的周会员若已过期，也会显示在此处为空。</p>';
+      } else {
+        var rows = recs.map(function(r) {
+          return '<tr>' +
+            '<td>' + (r.membership_type_label || r.membership_type || '—') + '</td>' +
+            '<td>' + (r.source_label || r.source || '—') + '</td>' +
+            '<td>' + fmtLocal(r.effective_at) + '</td>' +
+            '<td>' + fmtLocal(r.expires_at) + '</td>' +
+            '<td>' + (r.order_id ? String(r.order_id).slice(0, 18) + (String(r.order_id).length > 18 ? '…' : '') : '—') + '</td>' +
+            '</tr>';
+        }).join('');
+        wrap.innerHTML = '<table class="records"><thead><tr>' +
+          '<th>类型</th><th>来源</th><th>生效时间</th><th>到期时间</th><th>订单号</th>' +
+          '</tr></thead><tbody>' + rows + '</tbody></table>';
+      }
+
+      var gh = document.getElementById('gift-hint');
+      if (data.free_week_granted_at) {
+        gh.style.display = 'block';
+        gh.textContent = '注册赠送周会员已发放过（记录时间：' + fmtLocal(data.free_week_granted_at) + '）。是否仍在有效期内见上表。';
+      } else {
+        gh.style.display = 'none';
+      }
+    })
+    .catch(function() {});
+})();
+</script>
+{% endblock %}

@@ -44,6 +44,25 @@ def _verify_token(token: str):
         return None
 
 
+def get_user_id_from_authorization(request) -> int | None:
+    """
+    从 Authorization: Bearer <jwt> 解析用户 id。
+    兼容 scheme 大小写（bearer / Bearer）、token 首尾引号；验签失败返回 None。
+    """
+    try:
+        auth = (request.headers.get("Authorization") or "").strip()
+        parts = auth.split(None, 1)
+        if len(parts) != 2 or parts[0].lower() != "bearer":
+            return None
+        raw = parts[1].strip().strip('"').strip("'")
+        uid = _verify_token(raw)
+        if uid is None:
+            return None
+        return int(uid) if str(uid).isdigit() else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _normalize_phone(phone: str) -> str:
     """简单规范化：去空格、可去国家前缀。"""
     return (phone or "").strip().replace(" ", "").replace("-", "")
@@ -216,17 +235,126 @@ def login():
     })
 
 
+def _current_user_from_bearer() -> tuple[User | None, tuple | None]:
+    """
+    从 Authorization Bearer 解析当前用户。
+    返回 (user, None) 或 (None, (jsonify 响应体, http_status))。
+    """
+    user_id = get_user_id_from_authorization(request)
+    if user_id is None:
+        return None, (jsonify({"ok": False, "message": "请先登录"}), 401)
+    user = db.session.get(User, user_id)
+    if not user:
+        return None, (jsonify({"ok": False, "message": "用户不存在"}), 404)
+    return user, None
+
+
 @auth_bp.route("/me", methods=["GET"])
 def me():
     """根据 token 返回当前用户信息。Header: Authorization: Bearer <token>"""
-    auth = request.headers.get("Authorization") or ""
-    if not auth.startswith("Bearer "):
-        return jsonify({"ok": False, "message": "未登录"}), 401
-    token = auth[7:].strip()
-    user_id = _verify_token(token)
-    if not user_id:
-        return jsonify({"ok": False, "message": "登录已过期"}), 401
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({"ok": False, "message": "用户不存在"}), 404
+    user, err = _current_user_from_bearer()
+    if err:
+        body, status = err
+        return body, status
     return jsonify({"ok": True, "user": user.to_dict()})
+
+
+@auth_bp.route("/change-password", methods=["POST"])
+def change_password():
+    """
+    修改密码。Header: Authorization: Bearer <token>
+    Body: { "current_password": "...", "new_password": "..." }
+    若账号从未设置过密码（仅验证码登录过），可不传 current_password，仅传 new_password 即可首次设置。
+    """
+    user, err = _current_user_from_bearer()
+    if err:
+        body, status = err
+        return body, status
+    data = request.get_json() or {}
+    current_password = data.get("current_password") or ""
+    new_password = (data.get("new_password") or "").strip()
+
+    if not new_password or len(new_password) < 6:
+        return jsonify({"ok": False, "message": "新密码至少 6 位"}), 400
+
+    if user.password_hash:
+        if not current_password or not check_password_hash(user.password_hash, current_password):
+            return jsonify({"ok": False, "message": "当前密码错误"}), 400
+    # 无 password_hash：允许首次设置，不校验 current_password
+
+    user.password_hash = generate_password_hash(new_password, method="pbkdf2:sha256")
+    db.session.commit()
+    return jsonify({"ok": True, "message": "密码已更新"})
+
+
+@auth_bp.route("/change-email", methods=["POST"])
+def change_email():
+    """
+    修改邮箱。Header: Authorization: Bearer <token>
+    Body: { "email": "new@example.com" }
+    """
+    user, err = _current_user_from_bearer()
+    if err:
+        body, status = err
+        return body, status
+    data = request.get_json() or {}
+    email = _normalize_email(data.get("email") or "")
+    if not email or "@" not in email:
+        return jsonify({"ok": False, "message": "请输入有效的邮箱地址"}), 400
+
+    if user.email and email == _normalize_email(user.email or ""):
+        return jsonify({"ok": True, "message": "邮箱未变更", "user": user.to_dict()})
+
+    existing = User.query.filter(User.email == email, User.id != user.id).first()
+    if existing:
+        return jsonify({"ok": False, "message": "该邮箱已被其他账号使用"}), 409
+
+    user.email = email
+    db.session.commit()
+    return jsonify({"ok": True, "message": "邮箱已更新", "user": user.to_dict()})
+
+
+@auth_bp.route("/change-phone", methods=["POST"])
+def change_phone():
+    """
+    修改手机号（登录凭证）。需向新手机号发送验证码后提交校验。
+    Header: Authorization: Bearer <token>
+    Body: { "new_phone": "13800138000", "code": "123456" }
+    """
+    user, err = _current_user_from_bearer()
+    if err:
+        body, status = err
+        return body, status
+    data = request.get_json() or {}
+    new_phone = _normalize_phone(data.get("new_phone") or "")
+    code = (data.get("code") or "").strip()
+
+    if not _is_valid_phone(new_phone):
+        return jsonify({"ok": False, "message": "请输入 11 位有效手机号"}), 400
+    if new_phone == user.phone:
+        return jsonify({"ok": False, "message": "新手机号与当前相同"}), 400
+    if not code:
+        return jsonify({"ok": False, "message": "请输入验证码"}), 400
+
+    if User.query.filter_by(phone=new_phone).first():
+        return jsonify({"ok": False, "message": "该手机号已被其他账号使用"}), 409
+
+    now = datetime.utcnow()
+    rec = (
+        VerificationCode.query.filter_by(phone=new_phone, code=code)
+        .filter(VerificationCode.used_at.is_(None))
+        .filter(VerificationCode.expires_at > now)
+        .order_by(VerificationCode.created_at.desc())
+        .first()
+    )
+    if not rec:
+        return jsonify({"ok": False, "message": "验证码错误或已过期"}), 400
+
+    rec.used_at = now
+    user.phone = new_phone
+    db.session.commit()
+    return jsonify({
+        "ok": True,
+        "message": "手机号已更新，请使用新手机号登录",
+        "user": user.to_dict(),
+    })

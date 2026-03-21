@@ -14,12 +14,18 @@
   CRAWLER_EXPORT_EXCEL_MAX_ATTEMPTS  单场「导出 Excel」最多重试次数（默认 3）
   CRAWLER_MATCH_FILTER_VISIBLE_ONLY  1=只收集页面上可见行；0=含 DOM 隐藏行
   CRAWLER_MATCH_STATUS_MODES  状态过滤，逗号分隔：not_started,live,finished（默认 not_started）
+  DATABASE_URL  与 football-betting-platform 相同（mysql+pymysql://...），供 evaluation_matches 入表/出表；未设置则跳过
 """
 import os
 
+# 始终先加载与 config.py 同目录下的 .env（即 football-betting-pipeline/.env），
+# 避免从仓库根目录或其他 cwd 运行 run_real / plot_car 时读不到 DATABASE_URL。
+_PIPELINE_DIR = os.path.dirname(os.path.abspath(__file__))
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+
+    load_dotenv(os.path.join(_PIPELINE_DIR, ".env"))
+    load_dotenv()  # 当前工作目录 .env，仅补充 pipeline/.env 中未出现的键
 except ImportError:
     pass
 
@@ -27,6 +33,11 @@ except ImportError:
 # 默认使用当前文件所在目录的上一级（即包含 football-betting-data / football-betting-log / football-betting-report 的目录）。
 _DEFAULT_WORK_SPACE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORK_SPACE = os.environ.get("WORK_SPACE", _DEFAULT_WORK_SPACE).rstrip(os.sep)
+
+# 与 football-betting-platform 共用 MySQL 时配置；供 evaluation_matches 入表/出表。
+# 若 .env 里写了 DATABASE_URL=（空），仅用 get 的第二个参数无法回退，故用「or 本地默认」。
+_env_db = os.environ.get("DATABASE_URL", "").strip()
+DATABASE_URL = _env_db or "mysql+pymysql://root:123456@localhost:3306/football_betting"
 
 BASE_URL = os.environ.get(
     "CRAWLER_BASE_URL",

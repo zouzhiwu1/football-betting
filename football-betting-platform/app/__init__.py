@@ -7,9 +7,8 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 
 from config import (
-    DATABASE_URL,
+    CURVES_REQUIRE_ACTIVE_MEMBERSHIP,
     JWT_SECRET_KEY,
-    get_sqlalchemy_engine_options,
     LOG_DIR,
     LOG_FILE,
 )
@@ -35,10 +34,13 @@ def create_app():
         app.logger.setLevel(logging.INFO)
     except OSError:
         pass
-    app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
-    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = get_sqlalchemy_engine_options()
+    import config as _cfg
+
+    app.config["SQLALCHEMY_DATABASE_URI"] = _cfg.DATABASE_URL
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = _cfg.get_sqlalchemy_engine_options()
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config["SECRET_KEY"] = JWT_SECRET_KEY
+    app.config["CURVES_REQUIRE_ACTIVE_MEMBERSHIP"] = CURVES_REQUIRE_ACTIVE_MEMBERSHIP
     CORS(app)
 
     db.init_app(app)
@@ -46,9 +48,11 @@ def create_app():
     from app.auth import auth_bp
     from app.curves import curves_bp
     from app.membership_api import membership_bp
+    from app.pay_api import pay_bp
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(curves_bp, url_prefix="/api/curves")
     app.register_blueprint(membership_bp, url_prefix="/api/membership")
+    app.register_blueprint(pay_bp, url_prefix="/api/pay")
 
     @app.route("/")
     def index():
@@ -69,6 +73,25 @@ def create_app():
     @app.route("/curves")
     def curves_page():
         return render_template("curves.html")
+
+    @app.route("/account")
+    def account_page():
+        return render_template("account.html")
+
+    @app.route("/membership")
+    def membership_page():
+        return render_template("membership.html")
+
+    @app.route("/recharge")
+    def recharge_page():
+        return render_template("recharge.html")
+
+    @app.route("/recharge-records")
+    def recharge_records_page():
+        return render_template("recharge_records.html")
+
+    # 勿写 import app.models：在函数内会把局部名 app 绑定成包对象，覆盖 Flask 实例。
+    from app import models  # noqa: F401  # 注册全部模型，供 db.create_all() 建表
 
     with app.app_context():
         db.create_all()

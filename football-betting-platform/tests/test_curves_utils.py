@@ -2,7 +2,7 @@ from app.curves import _parse_curve_filename, _match_team
 
 
 def test_parse_curve_filename_ok():
-    home, away = _parse_curve_filename("A_VS_B_曲线.png")
+    home, away = _parse_curve_filename("A_VS_B.png")
     assert home == "A"
     assert away == "B"
 

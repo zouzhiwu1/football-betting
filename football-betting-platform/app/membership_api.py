@@ -8,14 +8,9 @@ membership_bp = Blueprint("membership", __name__)
 
 
 def _get_user_id():
-    try:
-        from app.auth import _verify_token
-        auth = request.headers.get("Authorization") or ""
-        if not auth.startswith("Bearer "):
-            return None
-        return _verify_token(auth[7:].strip())
-    except Exception:
-        return None
+    from app.auth import get_user_id_from_authorization
+
+    return get_user_id_from_authorization(request)
 
 
 @membership_bp.route("/status", methods=["GET"])

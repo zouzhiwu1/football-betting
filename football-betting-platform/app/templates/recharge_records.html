@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}充值信息 - 足球博彩平台{% endblock %}
+{% block extra_css %}
+<style>
+  body .container { max-width: 640px; }
+  h2 { font-size: 1.05rem; margin: 18px 0 10px 0; color: #334155; }
+  .nav-links { margin-bottom: 20px; font-size: 14px; }
+  .nav-links a { color: #2563eb; text-decoration: none; margin-right: 14px; }
+  .nav-links a:hover { text-decoration: underline; }
+  table.rec { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  table.rec th, table.rec td { text-align: left; padding: 10px 6px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  table.rec th { color: #64748b; font-weight: 600; white-space: nowrap; }
+  .status-pending { color: #b45309; font-weight: 500; }
+  .status-paid { color: #15803d; font-weight: 600; }
+  .status-closed { color: #64748b; }
+  .mono { font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
+  .toolbar { margin: 12px 0; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  button.secondary.small { width: auto; padding: 8px 16px; font-size: 14px; margin-top: 0; }
+  .empty { color: #64748b; padding: 20px 0; font-size: 14px; }
+  .msg { margin-top: 12px; }
+</style>
+{% endblock %}
+{% block content %}
+  <div class="nav-links">
+    <a href="/home">首页</a>
+    <a href="/recharge">会员充值</a>
+    <a href="/membership">会员信息</a>
+    <a href="/account">账户资料</a>
+    <a href="/curves">曲线图</a>
+    <a href="/login" id="logout-nav">退出登录</a>
+  </div>
+  <h1>充值信息</h1>
+  <p class="hint">展示当前账号在平台创建的会员购买订单（待支付 / 已支付 / 已关闭）。</p>
+
+  <div class="toolbar">
+    <button type="button" class="secondary small" id="btn-refresh">刷新</button>
+    <a href="/recharge" style="font-size:14px;color:#2563eb;">去充值</a>
+  </div>
+
+  <div id="loading" class="hint">加载中…</div>
+  <div id="table-wrap" style="display:none;"></div>
+  <div id="msg-err" class="msg error" style="display:none;"></div>
+{% endblock %}
+{% block extra_js %}
+<script>
+(function() {
+  var token = localStorage.getItem('token');
+  if (!token) {
+    window.location.href = '/login';
+    return;
+  }
+
+  function fmtLocal(iso) {
+    if (!iso) return '—';
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return iso;
+      return d.toLocaleString('zh-CN', { hour12: false });
+    } catch (e) { return iso; }
+  }
+
+  function statusClass(s) {
+    if (s === 'paid') return 'status-paid';
+    if (s === 'pending') return 'status-pending';
+    return 'status-closed';
+  }
+
+  function load() {
+    document.getElementById('msg-err').style.display = 'none';
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('table-wrap').style.display = 'none';
+    fetch('/api/pay/orders?limit=100', { headers: { 'Authorization': 'Bearer ' + token } })
+      .then(function(r) {
+        if (r.status === 401) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('username');
+          window.location.href = '/login';
+          return Promise.reject();
+        }
+        return r.json();
+      })
+      .then(function(data) {
+        document.getElementById('loading').style.display = 'none';
+        if (!data || !data.ok) {
+          var el = document.getElementById('msg-err');
+          el.textContent = (data && data.message) || '加载失败';
+          el.style.display = 'block';
+          return;
+        }
+        var orders = data.orders || [];
+        var wrap = document.getElementById('table-wrap');
+        wrap.style.display = 'block';
+        if (!orders.length) {
+          wrap.innerHTML = '<p class="empty">暂无充值订单。<a href="/recharge">去创建一笔订单</a></p>';
+          return;
+        }
+        var rows = orders.map(function(o) {
+          return '<tr>' +
+            '<td class="mono">' + (o.out_trade_no || '') + '</td>' +
+            '<td>' + (o.membership_type_label || o.membership_type || '') + '</td>' +
+            '<td>¥' + (o.total_amount || '') + '</td>' +
+            '<td><span class="' + statusClass(o.status) + '">' + (o.status_label || o.status) + '</span></td>' +
+            '<td>' + fmtLocal(o.created_at) + '</td>' +
+            '<td>' + fmtLocal(o.paid_at) + '</td>' +
+            '<td class="mono">' + (o.trade_no || '—') + '</td>' +
+            '</tr>';
+        }).join('');
+        wrap.innerHTML = '<table class="rec"><thead><tr>' +
+          '<th>订单号</th><th>档位</th><th>金额</th><th>状态</th><th>创建时间</th><th>支付时间</th><th>渠道流水号</th>' +
+          '</tr></thead><tbody>' + rows + '</tbody></table>';
+      })
+      .catch(function() {});
+  }
+
+  document.getElementById('logout-nav').onclick = function() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('username');
+  };
+  document.getElementById('btn-refresh').onclick = function() { load(); };
+  load();
+})();
+</script>
+{% endblock %}

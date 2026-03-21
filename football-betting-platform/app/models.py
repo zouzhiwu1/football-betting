@@ -26,6 +26,7 @@ class User(db.Model):
             "phone": self.phone,
             "email": self.email,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "password_set": bool(self.password_hash),
         }
 
 
@@ -39,6 +40,55 @@ class VerificationCode(db.Model):
     expires_at = db.Column(db.DateTime, nullable=False)
     used_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class EvaluationMatch(db.Model):
+    """正在综合评估的比赛：联合主键为（比赛日 YYYYMMDD、主队、客队）。"""
+
+    __tablename__ = "evaluation_matches"
+
+    # 固定 8 位日期字符串，与 pipeline 目录 YYYYMMDD 一致；与主客队组成联合主键（即唯一）
+    match_date = db.Column(db.String(8), primary_key=True)
+    home_team = db.Column(db.String(128), primary_key=True)  # 主场球队名称
+    away_team = db.Column(db.String(128), primary_key=True)  # 客场球队名称
+
+    def to_dict(self):
+        return {
+            "match_date": self.match_date,
+            "home_team": self.home_team,
+            "away_team": self.away_team,
+        }
+
+
+class PaymentOrder(db.Model):
+    """会员购买订单：商户订单号与支付宝异步通知对账、幂等发货。"""
+
+    __tablename__ = "payment_orders"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    out_trade_no = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    membership_type = db.Column(db.String(20), nullable=False)
+    total_amount = db.Column(db.String(16), nullable=False)  # 与支付宝 total_amount 一致，如 "1000.00"
+    subject = db.Column(db.String(256), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default="pending")  # pending / paid / closed
+    trade_no = db.Column(db.String(64), nullable=True)  # 支付宝交易号
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    paid_at = db.Column(db.DateTime, nullable=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "out_trade_no": self.out_trade_no,
+            "user_id": self.user_id,
+            "membership_type": self.membership_type,
+            "total_amount": self.total_amount,
+            "subject": self.subject,
+            "status": self.status,
+            "trade_no": self.trade_no,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "paid_at": self.paid_at.isoformat() if self.paid_at else None,
+        }
 
 
 class MembershipRecord(db.Model):

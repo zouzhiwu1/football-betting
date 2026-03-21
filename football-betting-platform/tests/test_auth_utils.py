@@ -1,9 +1,12 @@
+from types import SimpleNamespace
+
 from app.auth import (
     _normalize_phone,
     _is_valid_phone,
     _normalize_email,
     _create_token,
     _verify_token,
+    get_user_id_from_authorization,
 )
 
 
@@ -30,4 +33,17 @@ def test_create_and_verify_token_roundtrip():
 def test_verify_token_invalid_returns_none():
     assert _verify_token("invalid-token") is None
     assert _verify_token("") is None
+
+
+def test_get_user_id_from_authorization_bearer_case_insensitive():
+    tok = _create_token(42)
+    req = SimpleNamespace(headers={"Authorization": f"bearer {tok}"})
+    assert get_user_id_from_authorization(req) == 42
+    req2 = SimpleNamespace(headers={"Authorization": f'Bearer "{tok}"'})
+    assert get_user_id_from_authorization(req2) == 42
+
+
+def test_get_user_id_from_authorization_invalid():
+    assert get_user_id_from_authorization(SimpleNamespace(headers={})) is None
+    assert get_user_id_from_authorization(SimpleNamespace(headers={"Authorization": "Basic x"})) is None
 

@@ -14,7 +14,7 @@ except ImportError:
 # MySQL
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "mysql+pymysql://root:password@localhost:3306/football_betting"
+    "mysql+pymysql://root:123456@localhost:3306/football_betting"
 )
 
 # 占位符检测：若未修改 .env 会提示
@@ -83,9 +83,68 @@ if os.path.isdir(_repo_report):
     _def_report = _repo_report
 CURVE_IMAGE_DIR = os.environ.get("CURVE_IMAGE_DIR", _def_report)
 
+# 曲线图：默认 1 = 仅当前有效会员可查看任何曲线（会员过期后一律不可看，避免与 evaluation_matches 判场不一致时仍能看图）。
+# 若需严格按设计书「非会员可看完场/历史」：在 .env 设置 CURVES_REQUIRE_ACTIVE_MEMBERSHIP=0
+_CURVES_REQ = os.environ.get("CURVES_REQUIRE_ACTIVE_MEMBERSHIP", "1").strip().lower()
+CURVES_REQUIRE_ACTIVE_MEMBERSHIP = _CURVES_REQ not in ("0", "false", "no", "off")
+
 # 平台日志目录（与 pytest 覆盖率 htmlcov 同级，在 football-betting-log 下）
 LOG_DIR = os.environ.get(
     "LOG_DIR",
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "football-betting-log")
 )
 LOG_FILE = os.environ.get("LOG_FILE", os.path.join(LOG_DIR, "platform.log"))
+
+# ---------------------------------------------------------------------------
+# 支付宝 / 会员标价（支付回调开通会员）
+# ---------------------------------------------------------------------------
+# mock：不验 RSA，便于本地联调；需配合 ALIPAY_MOCK_SECRET + 请求头 X-Alipay-Mock-Secret
+# rsa ：按支付宝公钥验签（ALIPAY_PUBLIC_KEY_PEM 或 ALIPAY_PUBLIC_KEY_PATH）
+ALIPAY_MODE = os.environ.get("ALIPAY_MODE", "mock").strip().lower()
+ALIPAY_APP_ID = os.environ.get("ALIPAY_APP_ID", "")
+ALIPAY_MOCK_SECRET = os.environ.get("ALIPAY_MOCK_SECRET", "")
+# 异步通知完整 URL 前缀，用于下单返回给前端配置收银台（示例）
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://127.0.0.1:5001").rstrip("/")
+
+_alipay_pem_path = os.environ.get("ALIPAY_PUBLIC_KEY_PATH", "")
+if _alipay_pem_path and os.path.isfile(_alipay_pem_path):
+    with open(_alipay_pem_path, "r", encoding="utf-8") as _f:
+        ALIPAY_PUBLIC_KEY_PEM = _f.read()
+else:
+    ALIPAY_PUBLIC_KEY_PEM = os.environ.get("ALIPAY_PUBLIC_KEY_PEM", "")
+
+# ---------------------------------------------------------------------------
+# 微信支付 / 结果通知（V2 MD5 验签）
+# ---------------------------------------------------------------------------
+# mock：不验签；可选 WECHAT_MOCK_SECRET + 请求头 X-Wechat-Mock-Secret
+# v2 ：按商户平台 API 密钥验 MD5 签名（XML/表单字段）
+WECHAT_PAY_MODE = os.environ.get("WECHAT_PAY_MODE", "mock").strip().lower()
+WECHAT_MOCK_SECRET = os.environ.get("WECHAT_MOCK_SECRET", "")
+WECHAT_API_KEY = os.environ.get("WECHAT_API_KEY", "")
+
+
+def _load_membership_prices() -> dict[str, str]:
+    """各会员类型标价（元，两位小数字符串）。可用环境变量 MEMBERSHIP_PRICES_JSON 覆盖。"""
+    import json
+
+    raw = os.environ.get("MEMBERSHIP_PRICES_JSON", "").strip()
+    defaults = {
+        "week": "9.90",
+        "month": "29.90",
+        "quarter": "79.90",
+        "year": "299.90",
+    }
+    if not raw:
+        return defaults
+    try:
+        data = json.loads(raw)
+        out = dict(defaults)
+        for k, v in data.items():
+            if k in out and v is not None:
+                out[k] = str(v)
+        return out
+    except (json.JSONDecodeError, TypeError):
+        return defaults
+
+
+MEMBERSHIP_PRICES = _load_membership_prices()

@@ -158,7 +158,7 @@
           return;
         }
         if (data.member_only && data.message) {
-          showMessage(data.message, 'error');
+          showMessage(data.message, 'info');
           return;
         }
         if (data.error) {
@@ -167,7 +167,7 @@
         }
         const items = data.items || [];
         if (items.length === 0) {
-          showMessage('该条件下没有找到曲线图。', 'empty');
+          showMessage('该条件下没有找到曲线图（若确定目录里有图，可能是队名与文件名不完全一致）。', 'empty');
           return;
         }
         items.forEach(item => {

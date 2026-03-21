@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from config import BASE_URL, REPORT_DIR, DEBUG_LOG_DIR, LOG_RETENTION_DAYS
 from log_cleanup import delete_old_logs
 from scraper_final import run_finished_scraper
+from evaluation_sync import remove_matches_from_final_csv
 
 # 复用 crawl_real 的 driver 创建与日志目录
 from crawl_real import create_driver
@@ -84,6 +85,10 @@ def main():
         _display_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
         rel = os.path.relpath(out_path, _display_root)
         log.info("已写入 %d 条完场记录 -> %s", len(rows), rel)
+        try:
+            remove_matches_from_final_csv(target_date, out_path)
+        except Exception as e:
+            log.warning("evaluation_matches 出表失败（CSV 已写入）: %s", e)
     except Exception as e:
         log.exception("执行失败: %s", e)
         sys.exit(1)

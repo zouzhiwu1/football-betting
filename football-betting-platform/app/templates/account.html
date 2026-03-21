@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+{% block title %}账户资料 - 足球博彩平台{% endblock %}
+{% block extra_css %}
+<style>
+  body .container { max-width: 520px; }
+  h2 { font-size: 1.1rem; margin: 28px 0 12px 0; color: #334155; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
+  h2:first-of-type { margin-top: 0; }
+  .profile-row { display: flex; justify-content: space-between; padding: 8px 0; font-size: 15px; border-bottom: 1px solid #f1f5f9; }
+  .profile-row span:first-child { color: #64748b; }
+  .profile-row span:last-child { color: #1e293b; text-align: right; word-break: break-all; max-width: 65%; }
+  .section-msg { margin-top: 8px; margin-bottom: 0; }
+  .nav-links { margin-bottom: 20px; font-size: 14px; }
+  .nav-links a { color: #2563eb; text-decoration: none; margin-right: 16px; }
+  .nav-links a:hover { text-decoration: underline; }
+</style>
+{% endblock %}
+{% block content %}
+  <div class="nav-links">
+    <a href="/home">首页</a>
+    <a href="/membership">会员信息</a>
+    <a href="/recharge">会员充值</a>
+    <a href="/recharge-records">充值信息</a>
+    <a href="/curves">曲线图</a>
+    <a href="/login" id="logout-nav">退出登录</a>
+  </div>
+  <h1>账户资料</h1>
+
+  <h2>我的信息</h2>
+  <div id="profile-area">
+    <p class="hint" id="profile-loading">加载中…</p>
+    <div id="profile-details" style="display:none;"></div>
+  </div>
+
+  <h2>修改密码</h2>
+  <form id="form-password">
+    <label for="current_password">当前密码</label>
+    <input type="password" id="current_password" name="current_password" placeholder="若从未设置过密码可留空" autocomplete="current-password">
+    <p class="hint" id="hint-no-password" style="display:none;">当前账号尚未设置密码，只需填写新密码即可。</p>
+    <label for="new_password">新密码</label>
+    <input type="password" id="new_password" name="new_password" placeholder="至少 6 位" minlength="6" required autocomplete="new-password">
+    <label for="new_password2">确认新密码</label>
+    <input type="password" id="new_password2" name="new_password2" placeholder="再次输入新密码" minlength="6" required autocomplete="new-password">
+    <button type="submit" class="primary" id="btn-password">保存密码</button>
+  </form>
+  <div id="msg-password" class="msg section-msg" style="display:none;"></div>
+
+  <h2>修改手机号</h2>
+  <p class="hint">将向<strong>新手机号</strong>发送验证码（与注册时相同，mock 下验证码在运行服务的终端中查看）。</p>
+  <form id="form-phone">
+    <label for="new_phone">新手机号码</label>
+    <input type="tel" id="new_phone" name="new_phone" placeholder="11 位数字" minlength="11" maxlength="11" pattern="[0-9]{11}">
+    <button type="button" class="secondary" id="btn-send-phone-code">获取验证码</button>
+    <label for="phone_code">短信验证码</label>
+    <input type="text" id="phone_code" name="phone_code" placeholder="6 位验证码" maxlength="6">
+    <button type="submit" class="primary" id="btn-phone">保存手机号</button>
+  </form>
+  <div id="msg-phone" class="msg section-msg" style="display:none;"></div>
+
+  <h2>修改邮箱</h2>
+  <form id="form-email">
+    <label for="new_email">新邮箱地址</label>
+    <input type="email" id="new_email" name="new_email" placeholder="name@example.com" required autocomplete="email">
+    <button type="submit" class="primary" id="btn-email">保存邮箱</button>
+  </form>
+  <div id="msg-email" class="msg section-msg" style="display:none;"></div>
+{% endblock %}
+{% block extra_js %}
+<script>
+(function() {
+  var token = localStorage.getItem('token');
+  if (!token) {
+    window.location.href = '/login';
+    return;
+  }
+
+  var authHeaders = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
+
+  function show(elId, text, isError) {
+    var el = document.getElementById(elId);
+    el.textContent = text;
+    el.className = 'msg section-msg ' + (isError ? 'error' : 'success');
+    el.style.display = 'block';
+  }
+  function hide(id) { var el = document.getElementById(id); el.style.display = 'none'; el.textContent = ''; }
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return iso;
+      return d.toLocaleString('zh-CN', { hour12: false });
+    } catch (e) { return iso; }
+  }
+
+  function renderProfile(u) {
+    document.getElementById('profile-loading').style.display = 'none';
+    var box = document.getElementById('profile-details');
+    box.style.display = 'block';
+    box.innerHTML =
+      '<div class="profile-row"><span>用户名</span><span>' + (u.username || '—') + '</span></div>' +
+      '<div class="profile-row"><span>性别</span><span>' + (u.gender || '—') + '</span></div>' +
+      '<div class="profile-row"><span>手机号</span><span>' + (u.phone || '—') + '</span></div>' +
+      '<div class="profile-row"><span>邮箱</span><span>' + (u.email || '—') + '</span></div>' +
+      '<div class="profile-row"><span>注册时间</span><span>' + fmtDate(u.created_at) + '</span></div>';
+    document.getElementById('hint-no-password').style.display = u.password_set ? 'none' : 'block';
+    document.getElementById('new_email').value = u.email || '';
+    if (u.username) localStorage.setItem('username', u.username);
+    else if (u.phone) localStorage.setItem('username', u.phone);
+  }
+
+  fetch('/api/auth/me', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) {
+      if (r.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('username');
+        window.location.href = '/login';
+        return Promise.reject();
+      }
+      return r.json();
+    })
+    .then(function(data) {
+      if (!data || !data.ok || !data.user) {
+        document.getElementById('profile-loading').textContent = (data && data.message) || '无法加载资料';
+        return;
+      }
+      renderProfile(data.user);
+    })
+    .catch(function() {});
+
+  document.getElementById('logout-nav').onclick = function() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('username');
+  };
+
+  document.getElementById('form-password').onsubmit = function(e) {
+    e.preventDefault();
+    hide('msg-password');
+    var cur = document.getElementById('current_password').value;
+    var n1 = document.getElementById('new_password').value;
+    var n2 = document.getElementById('new_password2').value;
+    if (n1.length < 6) { show('msg-password', '新密码至少 6 位', true); return; }
+    if (n1 !== n2) { show('msg-password', '两次输入的新密码不一致', true); return; }
+    var body = { new_password: n1 };
+    if (cur) body.current_password = cur;
+    var btn = document.getElementById('btn-password');
+    btn.disabled = true;
+    fetch('/api/auth/change-password', { method: 'POST', headers: authHeaders, body: JSON.stringify(body) })
+      .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+      .then(function(res) {
+        if (res.ok && res.data.ok) {
+          show('msg-password', res.data.message || '密码已更新', false);
+          document.getElementById('current_password').value = '';
+          document.getElementById('new_password').value = '';
+          document.getElementById('new_password2').value = '';
+          document.getElementById('hint-no-password').style.display = 'none';
+        } else {
+          show('msg-password', (res.data && res.data.message) || '修改失败', true);
+        }
+        btn.disabled = false;
+      })
+      .catch(function() { show('msg-password', '网络错误', true); btn.disabled = false; });
+  };
+
+  document.getElementById('btn-send-phone-code').onclick = function() {
+    hide('msg-phone');
+    var phone = document.getElementById('new_phone').value.trim();
+    if (!/^\d{11}$/.test(phone)) { show('msg-phone', '请输入 11 位有效新手机号', true); return; }
+    var btn = document.getElementById('btn-send-phone-code');
+    btn.disabled = true;
+    fetch('/api/auth/send-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: phone })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        show('msg-phone', data.message || (data.ok ? '验证码已发送' : '发送失败'), !data.ok);
+        if (data.ok) {
+          var n = 60;
+          var t = setInterval(function() {
+            btn.textContent = n + ' 秒后重发';
+            n--;
+            if (n < 0) { clearInterval(t); btn.disabled = false; btn.textContent = '获取验证码'; }
+          }, 1000);
+        } else { btn.disabled = false; }
+      })
+      .catch(function() { show('msg-phone', '请求失败', true); btn.disabled = false; });
+  };
+
+  document.getElementById('form-phone').onsubmit = function(e) {
+    e.preventDefault();
+    hide('msg-phone');
+    var newPhone = document.getElementById('new_phone').value.trim();
+    var code = document.getElementById('phone_code').value.trim();
+    if (!/^\d{11}$/.test(newPhone)) { show('msg-phone', '请输入 11 位有效新手机号', true); return; }
+    if (!code) { show('msg-phone', '请输入验证码', true); return; }
+    var btn = document.getElementById('btn-phone');
+    btn.disabled = true;
+    fetch('/api/auth/change-phone', {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ new_phone: newPhone, code: code })
+    })
+      .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+      .then(function(res) {
+        if (res.ok && res.data.ok) {
+          show('msg-phone', res.data.message || '已更新', false);
+          document.getElementById('phone_code').value = '';
+          if (res.data.user) renderProfile(res.data.user);
+        } else {
+          show('msg-phone', (res.data && res.data.message) || '修改失败', true);
+        }
+        btn.disabled = false;
+      })
+      .catch(function() { show('msg-phone', '网络错误', true); btn.disabled = false; });
+  };
+
+  document.getElementById('form-email').onsubmit = function(e) {
+    e.preventDefault();
+    hide('msg-email');
+    var email = document.getElementById('new_email').value.trim();
+    if (!email || email.indexOf('@') < 0) { show('msg-email', '请输入有效邮箱', true); return; }
+    var btn = document.getElementById('btn-email');
+    btn.disabled = true;
+    fetch('/api/auth/change-email', {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ email: email })
+    })
+      .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+      .then(function(res) {
+        if (res.ok && res.data.ok) {
+          show('msg-email', res.data.message || '已更新', false);
+          if (res.data.user) renderProfile(res.data.user);
+        } else {
+          show('msg-email', (res.data && res.data.message) || '修改失败', true);
+        }
+        btn.disabled = false;
+      })
+      .catch(function() { show('msg-email', '网络错误', true); btn.disabled = false; });
+  };
+})();
+</script>
+{% endblock %}
