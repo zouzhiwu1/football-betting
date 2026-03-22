@@ -6,14 +6,30 @@
 """
 import logging
 import os
+import re
+import subprocess
 import sys
 from datetime import datetime
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_manager.core.os_manager import ChromeType
 
-from config import BASE_URL, DOWNLOAD_DIR, HEADLESS, DEBUG_LOG_DIR, LOG_RETENTION_DAYS
+from config import (
+    BASE_URL,
+    CHROME_BINARY_PATH,
+    CHROME_DISABLE_HTTP2,
+    CHROMEDRIVER_PATH,
+    CHROME_USER_AGENT,
+    DEBUG_LOG_DIR,
+    DOWNLOAD_DIR,
+    HEADLESS,
+    LOG_RETENTION_DAYS,
+    PAGE_LOAD_STRATEGY,
+    PAGE_LOAD_TIMEOUT_SECONDS,
+    SELENIUM_REMOTE_READ_TIMEOUT,
+)
 from log_cleanup import delete_old_logs
 from scraper_real import ZhiyunScraper
 
@@ -41,11 +57,70 @@ def _setup_logging():
     return logger
 
 
+def _chromium_semver_from_binary(binary_path: str) -> str | None:
+    """从 Chromium/Chrome 可执行文件解析主版本三元组，供 webdriver-manager 下载匹配 chromedriver。"""
+    if not binary_path or not os.path.isfile(binary_path):
+        return None
+    try:
+        proc = subprocess.run(
+            [binary_path, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        text = (proc.stdout or "") + (proc.stderr or "")
+        m = re.search(r"(\d+\.\d+\.\d+)", text)
+        return m.group(1) if m else None
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _chromedriver_path_webdriver_manager() -> str:
+    """
+    未指定系统 chromedriver 时，用 webdriver-manager 下载驱动。
+
+    Docker 内常见仅有 /usr/bin/chromium、无 google-chrome；默认 ChromeDriverManager
+    按 Google Chrome 检测版本会得到 None，进而落到旧版 LATEST_RELEASE（如 114），
+    与真实 Chromium 主版本不一致。此处若配置了 CHROME_BINARY_PATH，则按其 --version
+    解析版本并显式指定 driver_version。
+    """
+    log = logging.getLogger("crawl_real")
+    if CHROME_BINARY_PATH:
+        ver = _chromium_semver_from_binary(CHROME_BINARY_PATH)
+        if ver:
+            log.info(
+                "webdriver-manager: 按 CRAWLER_CHROME_BINARY 解析到浏览器版本 %s，下载匹配 chromedriver",
+                ver,
+            )
+            return ChromeDriverManager(
+                driver_version=ver,
+                chrome_type=ChromeType.CHROMIUM,
+            ).install()
+        log.warning(
+            "无法从 %s 解析版本，回退为按系统 Chromium 探测 chromedriver",
+            CHROME_BINARY_PATH,
+        )
+        return ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()
+    return ChromeDriverManager().install()
+
+
 def create_driver():
     """创建 Chrome 驱动，使用 webdriver-manager 自动管理 chromedriver。"""
     options = webdriver.ChromeOptions()
+    options.page_load_strategy = PAGE_LOAD_STRATEGY
     if HEADLESS:
         options.add_argument("--headless=new")
+        # Linux 无头容器常见 GPU/渲染崩溃，与 <unknown> 栈相关时可稳定页面
+        options.add_argument("--disable-gpu")
+    if CHROME_USER_AGENT:
+        options.add_argument(f"--user-agent={CHROME_USER_AGENT}")
+    if CHROME_DISABLE_HTTP2:
+        options.add_argument("--disable-http2")
+    # 降低无头自动化特征（部分站点会挡 HeadlessChrome / webdriver）
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--lang=zh-CN,zh")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
@@ -62,12 +137,46 @@ def create_driver():
     }
     options.add_experimental_option("prefs", prefs)
 
-    service = Service(ChromeDriverManager().install())
+    if CHROME_BINARY_PATH:
+        options.binary_location = CHROME_BINARY_PATH
+
+    if CHROMEDRIVER_PATH:
+        service = Service(executable_path=CHROMEDRIVER_PATH)
+    else:
+        service = Service(_chromedriver_path_webdriver_manager())
+
     driver = webdriver.Chrome(service=service, options=options)
+
+    # ChromiumRemoteConnection 默认 HTTP 读超时 120s；须在首次 driver.get 前改 command_executor
+    if SELENIUM_REMOTE_READ_TIMEOUT > 0:
+        try:
+            ce = driver.command_executor
+            if hasattr(ce, "client_config") and ce.client_config is not None:
+                ce.client_config.timeout = SELENIUM_REMOTE_READ_TIMEOUT
+        except Exception:
+            pass
+
+    if PAGE_LOAD_TIMEOUT_SECONDS > 0:
+        driver.set_page_load_timeout(PAGE_LOAD_TIMEOUT_SECONDS)
 
     # 在每个新页面注入静音脚本：静音所有 audio/video，并定期拉取新元素（应对动态加载）
     _inject_mute_script(driver)
+    _inject_hide_webdriver(driver)
     return driver
+
+
+def _inject_hide_webdriver(driver):
+    """通过 CDP 隐藏 navigator.webdriver，减轻反爬脚本识别。"""
+    src = """
+Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+"""
+    try:
+        driver.execute_cdp_cmd(
+            "Page.addScriptToEvaluateOnNewDocument",
+            {"source": src},
+        )
+    except Exception:
+        pass
 
 
 def _inject_mute_script(driver):

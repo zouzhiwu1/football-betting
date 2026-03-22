@@ -7,6 +7,12 @@ from urllib.parse import urlparse, unquote
 
 try:
     from dotenv import load_dotenv
+
+    _cfg_dir = os.path.dirname(os.path.abspath(__file__))
+    _repo_root = os.path.dirname(_cfg_dir)
+    # 仓库根目录 .env → 子项目 .env → 当前工作目录（后者仅补充未出现的键）
+    load_dotenv(os.path.join(_repo_root, ".env"))
+    load_dotenv(os.path.join(_cfg_dir, ".env"))
     load_dotenv()
 except ImportError:
     pass

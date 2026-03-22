@@ -14,6 +14,15 @@
   CRAWLER_EXPORT_EXCEL_MAX_ATTEMPTS  单场「导出 Excel」最多重试次数（默认 3）
   CRAWLER_MATCH_FILTER_VISIBLE_ONLY  1=只收集页面上可见行；0=含 DOM 隐藏行
   CRAWLER_MATCH_STATUS_MODES  状态过滤，逗号分隔：not_started,live,finished（默认 not_started）
+  CRAWLER_CHROME_USER_AGENT  覆盖 Chrome User-Agent（默认桌面 Chrome，避免 HeadlessChrome 被拒）
+  CRAWLER_CHROME_DISABLE_HTTP2  设为 1 时禁用 HTTP/2（排查协议问题时使用）
+  CRAWLER_CHROME_BINARY  浏览器可执行文件路径（Docker 内常见 /usr/bin/chromium）；简写 CHROME_BINARY 亦有效
+  CRAWLER_CHROMEDRIVER_PATH  chromedriver 路径，须与 Chromium 主版本一致；简写 CHROMEDRIVER_PATH 亦有效
+  CRAWLER_ALLOW_GLOBAL_TABLE_LIVE  设为 1 时，即时比分在 middle→ScoreDiv 内找不到 #table_live 则回退全局 #table_live（与完场逻辑类似，Docker/页面差异时可开）
+  CRAWLER_WAIT_ELEMENT  Selenium 显式等待上限秒数（默认 20），服务器慢或跨境可改为 40～60
+  CRAWLER_PAGE_LOAD_STRATEGY  driver.get 页面加载策略：normal / eager / none（默认 eager，避免第三方资源卡死导致 120s 读超时）
+  CRAWLER_PAGE_LOAD_TIMEOUT  浏览器导航超时秒数（默认 90）；0 表示不设置
+  CRAWLER_SELENIUM_READ_TIMEOUT  Python 与 chromedriver HTTP 读超时秒数（默认 240，须大于导航耗时）
   DATABASE_URL  与 football-betting-platform 相同（mysql+pymysql://...），供 evaluation_matches 入表/出表；未设置则跳过
 """
 import os
@@ -21,11 +30,13 @@ import os
 # 始终先加载与 config.py 同目录下的 .env（即 football-betting-pipeline/.env），
 # 避免从仓库根目录或其他 cwd 运行 run_real / plot_car 时读不到 DATABASE_URL。
 _PIPELINE_DIR = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.dirname(_PIPELINE_DIR)
 try:
     from dotenv import load_dotenv
 
+    load_dotenv(os.path.join(_REPO_ROOT, ".env"))
     load_dotenv(os.path.join(_PIPELINE_DIR, ".env"))
-    load_dotenv()  # 当前工作目录 .env，仅补充 pipeline/.env 中未出现的键
+    load_dotenv()  # 当前工作目录 .env，仅补充未出现的键
 except ImportError:
     pass
 
@@ -65,6 +76,29 @@ TRIGGER_HOURS.sort()
 # 用于“当前时间”的时区（避免服务器 UTC 导致临界点错位）
 TIMEZONE = os.environ.get("CRAWLER_TIMEZONE", "Asia/Tokyo")
 HEADLESS = os.environ.get("CRAWLER_HEADLESS", "1") == "1"
+# Chrome User-Agent：无头模式默认 UA 常含 HeadlessChrome，易被目标站拒绝；与「curl + 桌面 Chrome UA」成功时保持一致。
+_DEFAULT_CHROME_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+)
+_raw_chrome_ua = os.environ.get("CRAWLER_CHROME_USER_AGENT", "").strip()
+CHROME_USER_AGENT = _raw_chrome_ua if _raw_chrome_ua else _DEFAULT_CHROME_UA
+# 设为 1 时禁用 HTTP/2（与部分环境下 curl 的 HTTP/2 PROTOCOL_ERROR 类似问题时可试）
+CHROME_DISABLE_HTTP2 = os.environ.get("CRAWLER_CHROME_DISABLE_HTTP2", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+# Docker / 服务器：指定系统已安装的 Chromium 与 chromedriver，避免 webdriver-manager 下载的二进制缺库退出 127
+# 兼容简写环境变量 CHROME_BINARY / CHROMEDRIVER_PATH（易与文档笔误混淆时仍可用）
+CHROME_BINARY_PATH = (
+    os.environ.get("CRAWLER_CHROME_BINARY", "").strip()
+    or os.environ.get("CHROME_BINARY", "").strip()
+)
+CHROMEDRIVER_PATH = (
+    os.environ.get("CRAWLER_CHROMEDRIVER_PATH", "").strip()
+    or os.environ.get("CHROMEDRIVER_PATH", "").strip()
+)
 # 日志目录：定时任务 stdout/stderr、调试导出的页面 HTML（debug_export_page_*.html）等
 DEBUG_LOG_DIR = os.environ.get(
     "CRAWLER_DEBUG_LOG_DIR",
@@ -115,6 +149,11 @@ if not MATCH_STATUS_MODES:
     MATCH_STATUS_MODES = ["not_started"]
 # 3) 联赛：TARGET_LEAGUE_NAMES；空列表表示不限制（见上）
 
+# 即时比分：strict 选择器找不到主表时是否允许回退到页面内任意 #table_live（默认关，避免误用 main2）
+ALLOW_GLOBAL_TABLE_LIVE = os.environ.get(
+    "CRAWLER_ALLOW_GLOBAL_TABLE_LIVE", ""
+).strip().lower() in ("1", "true", "yes")
+
 # 表格列索引（与页面一致）：选、联赛、时间、状态、主队、比分、客队、…
 # 第 2 列（索引 1）为联赛简称，用于联赛白名单（TARGET_LEAGUE_NAMES）过滤。
 COL_LEAGUE = 1
@@ -126,7 +165,14 @@ COL_SCORE = 5    # 比分列（即时比分/完场比分均用）
 COL_AWAY = 6
 
 # 等待时间（秒）
-WAIT_ELEMENT = 20
+WAIT_ELEMENT = int(os.environ.get("CRAWLER_WAIT_ELEMENT", "20"))
+
+# driver.get：normal=等 load 完成；eager=DOM 可交互后返回（适合本站 + 服务器防卡死）；none=几乎立即返回
+_raw_pls = os.environ.get("CRAWLER_PAGE_LOAD_STRATEGY", "eager").strip().lower()
+PAGE_LOAD_STRATEGY = _raw_pls if _raw_pls in ("normal", "eager", "none") else "eager"
+PAGE_LOAD_TIMEOUT_SECONDS = int(os.environ.get("CRAWLER_PAGE_LOAD_TIMEOUT", "90"))
+# Selenium → chromedriver 单次 HTTP 读超时（默认 120 时，首屏若永不 complete 会在 driver.get 上报错）
+SELENIUM_REMOTE_READ_TIMEOUT = int(os.environ.get("CRAWLER_SELENIUM_READ_TIMEOUT", "240"))
 WAIT_AFTER_CLICK = 0.5
 WAIT_AFTER_HOVER = 0.4
 WAIT_TABLE_REFRESH = 3

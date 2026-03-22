@@ -14,6 +14,60 @@ cd football-betting-pipeline
 pip install -r requirements.txt
 ```
 
+## Docker / Linux 服务器：ChromeDriver `Status code was: 127`
+
+若在容器或精简系统里出现：
+
+`WebDriverException: Service .../chromedriver unexpectedly exited. Status code was: 127`
+
+**含义**：`chromedriver` 这个可执行文件**没能真正跑起来**。常见原因不是「脚本路径错了」（`crawl_real.py` 已在执行），而是：
+
+1. **缺少动态库**（最常见）：`python-webdriver-manager` 下载的 `chromedriver` 依赖 `libnss3`、`libgbm1`、`libgtk-3-0` 等，**slim/alpine 镜像未装 Chrome/Chromium 及依赖** 时会 127。  
+2. **架构不符**：例如在 **ARM** 机器上用了 x86 的 driver（或反之）。
+
+**容器内自检**（路径按报错里的 `/root/.wdm/.../chromedriver` 替换）：
+
+```bash
+ldd /root/.wdm/drivers/chromedriver/linux64/*/chromedriver   # 若有 "not found" 即缺库
+/root/.wdm/drivers/chromedriver/linux64/*/chromedriver --version  # 看能否直接执行
+```
+
+**Debian/Ubuntu 系镜像建议**（在 Dockerfile 中安装 Chromium + 驱动 + 常用依赖，再 `pip install`；版本需与 `chromedriver` 大版本一致，或改用系统自带的 `chromium-driver`）：
+
+```dockerfile
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium chromium-driver \
+    fonts-liberation libasound2 libatk-bridge2.0-0 libatk1.0-0 libcairo2 libcups2 \
+    libdbus-1-3 libdrm2 libgbm1 libglib2.0-0 libgtk-3-0 libnspr4 libnss3 \
+    libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 \
+    libxkbcommon0 libxrandr2 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+在容器环境里指定 **系统 Chromium + chromedriver**（路径因发行版而异，Debian/Ubuntu 常见如下）：
+
+```dockerfile
+ENV CRAWLER_CHROME_BINARY=/usr/bin/chromium
+ENV CRAWLER_CHROMEDRIVER_PATH=/usr/bin/chromedriver
+```
+
+或在 `.env` / `docker-compose` 的 `environment` 中写入同等变量。`crawl_real.create_driver()` 会优先使用上述路径，**不再**用 webdriver-manager 下载的 `chromedriver`，从而避免 slim 镜像缺库导致 **退出码 127**。
+
+**不推荐在 Alpine 上跑官方 Linux chromedriver**（musl 与 glibc 二进制不兼容），请优先用 **debian-slim** 等 glibc 基础镜像。
+
+### Docker / 服务器：`plot_car` 中文标题乱码或终端刷 `Glyph … missing`
+
+Linux 精简镜像通常没有 macOS/Windows 的中文字体，Matplotlib 会退回 **DejaVu Sans**，无法绘制汉字，并出现大量 `findfont` / `Glyph missing` 警告。
+
+在镜像中安装任一中文字体包即可，例如 Debian/Ubuntu：
+
+```dockerfile
+RUN apt-get update && apt-get install -y --no-install-recommends fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+或体积更小：`fonts-wqy-microhei`。装完后无需改代码，`plot_car` 会自动选用 Noto / 文泉驿等。
+
 ## 项目结构
 
 ```
@@ -75,6 +129,90 @@ python run_real.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
   - `plot_car.py start end`
 
 也可单独执行各步骤，见下文「脚本说明」。
+
+#### Docker：用 `.env` 代替一长串 `docker exec -e`
+
+`config.py` 会通过 `python-dotenv` 加载：
+
+1. **仓库根目录**下的 `.env`（即 `football-betting-pipeline` 的**上一级**目录）  
+2. **`football-betting-pipeline/.env`**
+
+容器里代码若在 `/app/football-betting-pipeline/`，可在宿主机编辑后拷入，例如：
+
+```bash
+# 在服务器上写好 app.env（勿提交密码到 Git）
+docker cp ./app.env football-app:/app/.env
+# 或：docker cp ./app.env football-app:/app/football-betting-pipeline/.env
+```
+
+`.env` 中写入（按实际改密码与路径）：
+
+```env
+WORK_SPACE=/app
+CRAWLER_CHROME_BINARY=/usr/bin/chromium
+CRAWLER_CHROMEDRIVER_PATH=
+CHROMEDRIVER_PATH=
+DATABASE_URL=mysql+pymysql://root:密码@football-db:3306/football_betting
+```
+
+之后每次只需：
+
+```bash
+docker exec -it football-app python football-betting-pipeline/run_real.py
+```
+
+若使用 **docker-compose**，也可把上述变量写在服务的 `environment:` 或 `env_file: ./app.env` 里，效果相同。
+
+#### Docker：Linux 定时任务（cron）
+
+在 **ECS 宿主机**（不是容器里）配置 cron，到点执行 `docker exec`。  
+**不要**加 `-t`（无终端），建议保留 `-i` 可选。
+
+默认整点与 `config.TRIGGER_HOURS` 一致时为：`2,4,6,13,15,17,19,21,23`（与 `CRAWLER_TRIGGER_HOURS` 可改）。
+
+**1）时区**  
+业务逻辑里的「当前时间」由 `CRAWLER_TIMEZONE`（默认 `Asia/Tokyo`）决定；**cron 触发时刻**默认跟 **系统时区** 走。若 ECS 是 UTC、你希望按 **东京整点** 跑，在 crontab **第一行**加（GNU cron）：
+
+```cron
+CRON_TZ=Asia/Tokyo
+```
+
+**2）编辑 root 的 crontab**
+
+```bash
+sudo crontab -e
+```
+
+**3）示例（整点跑即时流程；路径与容器名按实际修改）**
+
+```cron
+CRON_TZ=Asia/Tokyo
+0 2,4,6,13,15,17,19,21,23 * * * docker exec football-app python /app/football-betting-pipeline/run_real.py >> /var/log/football-run-real.log 2>&1
+```
+
+- 环境变量已放进容器内 `/app/.env` 时，这里**不必**再写一长串 `-e`。  
+- 日志：`>> ... 2>&1` 可改成你宿主机上的目录（需可写）。  
+- 容器名若不是 `football-app`，用 `docker ps` 查看后替换。
+
+**4）完场流程（若需要）**  
+例如每天东京时间 **13:00** 跑一次（与仓库内 `run_final` 定时设计一致时可对齐）：
+
+```cron
+CRON_TZ=Asia/Tokyo
+0 13 * * * docker exec football-app python /app/football-betting-pipeline/run_final.py >> /var/log/football-run-final.log 2>&1
+```
+
+**5）自检**
+
+```bash
+# 看下次 cron 是否加载成功
+sudo crontab -l
+
+# 手动模拟定时任务（与 cron 同一条命令）
+docker exec football-app python /app/football-betting-pipeline/run_real.py
+```
+
+也可用 **systemd timer** 替代 cron，写法不同但思路相同：到点 `docker exec`。
 
 ### 2）完场流程入口：run_final.py
 
@@ -205,6 +343,11 @@ python plot_car.py <起始时间YYYYMMDDHH> <终止时间YYYYMMDDHH>
 | `CRAWLER_DEBUG_MATCH_KEYWORDS` | **调试用**：仅抓取主队或客队名称包含任一关键词的比赛，逗号分隔。例如 `帕纳辛纳科斯,里尔,博洛尼亚`。不设或为空则抓取全部 | 未设置 |
 | `CRAWLER_MATCH_FILTER_VISIBLE_ONLY` | `run_real` 列表**可视过滤**：`1` 只处理页面上可见行（与「隐藏 N 场」一致）；`0` 则包含 DOM 内隐藏行 | `1` |
 | `CRAWLER_MATCH_STATUS_MODES` | `run_real` 列表**状态过滤**，逗号分隔、并集：`not_started`（未开场，空白或 `-`）、`live`（进行中）、`finished`（状态列含「完」） | `not_started` |
+| `CRAWLER_ALLOW_GLOBAL_TABLE_LIVE` | `1` 时在 ScoreDiv 内找不到主表则回退全局 `#table_live`（与完场逻辑类似；Docker/页面与本地不一致时可试） | 未启用 |
+| `CRAWLER_WAIT_ELEMENT` | Selenium 显式等待秒数上限（跨境、弱网、容器慢） | `20` |
+| `CRAWLER_PAGE_LOAD_STRATEGY` | `driver.get` 策略：`eager` 在 DOM 可交互后返回，减少因广告/统计请求卡住导致的 **HTTP read timeout**；`normal` / `none` 见 Selenium 文档 | `eager` |
+| `CRAWLER_PAGE_LOAD_TIMEOUT` | 浏览器导航超时（秒），`0` 表示不限制 | `90` |
+| `CRAWLER_SELENIUM_READ_TIMEOUT` | Python ↔ chromedriver 单次 HTTP 读超时（秒），应大于慢速首屏耗时 | `240` |
 
 联赛白名单仍由 `config.py` 中 `TARGET_LEAGUE_NAMES` / 环境变量 `CRAWLER_TARGET_LEAGUES` 控制（见该文件注释）。
 

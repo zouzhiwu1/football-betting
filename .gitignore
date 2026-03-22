@@ -1,3 +1,8 @@
 football-betting-data/
 football-betting-log/
 football-betting-report/
+
+# 根目录总配置（含密钥）；提交请使用 .env.example
+.env
+football-betting-platform/.env
+football-betting-pipeline/.env

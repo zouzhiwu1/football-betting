@@ -75,22 +75,57 @@ def _safe_filename(name: str) -> str:
 
 def _setup_chinese_font():
     """设置 matplotlib 支持中文标签，避免中文显示为方框。"""
-    # 从已安装字体中选一个能显示中文的（macOS 常见：PingFang SC、Heiti SC）
-    preferred = ["PingFang SC", "Heiti SC", "STHeiti", "Songti SC", "Hiragino Sans GB",
-                 "SimHei", "Microsoft YaHei", "WenQuanYi Micro Hei"]
+    # 桌面常见 + Linux/Docker 常见（需在镜像内 apt 安装 fonts-noto-cjk 或 fonts-wqy-microhei）
+    preferred = [
+        "PingFang SC",
+        "Heiti SC",
+        "STHeiti",
+        "Songti SC",
+        "Hiragino Sans GB",
+        "SimHei",
+        "Microsoft YaHei",
+        "WenQuanYi Micro Hei",
+        "WenQuanYi Zen Hei",
+        "Noto Sans CJK SC",
+        "Noto Serif CJK SC",
+        "Source Han Sans SC",
+        "Source Han Sans CN",
+        "Droid Sans Fallback",
+    ]
     all_names = {f.name for f in fm.fontManager.ttflist}
     chosen = None
     for name in preferred:
         if name in all_names:
             chosen = name
             break
-    if not chosen:  # pragma: no cover - 常见系统均有上述字体之一
-        # 按关键字模糊匹配（字体名可能带空格或后缀）
-        for f in fm.fontManager.ttflist:  # pragma: no cover
-            if "PingFang" in f.name or "Heiti SC" in f.name or "STHeiti" in f.name:
-                chosen = f.name
+    if not chosen:  # pragma: no cover
+        for f in fm.fontManager.ttflist:
+            n = f.name
+            if any(
+                k in n
+                for k in (
+                    "PingFang",
+                    "Heiti",
+                    "STHeiti",
+                    "Noto Sans CJK",
+                    "Noto Serif CJK",
+                    "WenQuanYi",
+                    "Source Han",
+                    "Droid Sans Fallback",
+                )
+            ):
+                chosen = n
                 break
-    plt.rcParams["font.sans-serif"] = [chosen] if chosen else preferred
+    # 仍无时不要用「一串不存在的字体名」，否则 matplotlib 会落到 DejaVu 并刷 Glyph missing
+    if chosen:
+        plt.rcParams["font.sans-serif"] = [chosen]
+    else:
+        plt.rcParams["font.sans-serif"] = ["DejaVu Sans"]
+        logging.getLogger("plot_car").warning(
+            "未检测到任何中文字体（建议在 Docker/服务器执行: "
+            "apt-get install -y fonts-noto-cjk 或 fonts-wqy-microhei），"
+            "图中中文可能显示为方框"
+        )
     plt.rcParams["axes.unicode_minus"] = False
 
 

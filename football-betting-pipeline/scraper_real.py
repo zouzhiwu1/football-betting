@@ -30,7 +30,7 @@ from selenium.common.exceptions import (
 )
 
 from league_whitelist import league_matches_whitelist
-from match_filters import match_status_allowed
+from match_filters import describe_status_filter_for_log, match_status_allowed
 from config import (
     BASE_URL,
     DOWNLOAD_DIR,
@@ -40,6 +40,8 @@ from config import (
     DEBUG_MATCH_KEYWORDS,
     ZUCAI_MENU_OPTIONS,
     MATCH_FILTER_VISIBLE_ONLY,
+    TARGET_LEAGUE_NAMES,
+    ALLOW_GLOBAL_TABLE_LIVE,
     COL_LEAGUE,
     COL_STATUS,
     COL_HOME,
@@ -106,19 +108,50 @@ class ZhiyunScraper:
             match_rows = self._collect_match_rows(
                 wait, visible_only=MATCH_FILTER_VISIBLE_ONLY
             )
-            log.info("[%s]数据加载完成", menu_option)
+            log.info("[%s] 数据加载完成", menu_option)
+            n_raw = len(match_rows)
+            visible_desc = (
+                "仅可见行（与页面「隐藏场次」一致）"
+                if MATCH_FILTER_VISIBLE_ONLY
+                else "含 DOM 内隐藏行"
+            )
+            log.info("【列表过滤】表格数据行 %d 行（可视：%s）", n_raw, visible_desc)
+            log.info("【状态过滤】当前允许：%s", describe_status_filter_for_log())
             match_rows = [
                 row
                 for row in match_rows
                 if match_status_allowed(self._get_cell_text(row, COL_STATUS))
             ]
+            n_after_status = len(match_rows)
+            log.info(
+                "【状态过滤】%d -> %d 场（剔除 %d）",
+                n_raw,
+                n_after_status,
+                n_raw - n_after_status,
+            )
+            if TARGET_LEAGUE_NAMES:
+                log.info(
+                    "【联赛白名单】已启用，共 %d 个联赛；不在名单内的场次将被跳过",
+                    len(TARGET_LEAGUE_NAMES),
+                )
+            else:
+                log.info(
+                    "【联赛白名单】未启用（CRAWLER_TARGET_LEAGUES 为空），不限制联赛"
+                )
             # 联赛白名单：按 config 名单过滤第 2 列联赛简称；名单为空则不限制
             match_rows = [
                 row
                 for row in match_rows
                 if league_matches_whitelist(self._get_cell_text(row, COL_LEAGUE))
             ]
-            log.info("--- 主队 vs 客队 ---")
+            n_after_league = len(match_rows)
+            log.info(
+                "【联赛白名单】%d -> %d 场（剔除 %d）",
+                n_after_status,
+                n_after_league,
+                n_after_status - n_after_league,
+            )
+            log.info("--- 主队 vs 客队（将依次尝试导出）---")
             for i, row in enumerate(match_rows, 1):
                 home = self._get_cell_text(row, COL_HOME)
                 away = self._get_cell_text(row, COL_AWAY)
@@ -180,13 +213,12 @@ class ZhiyunScraper:
                 return True
             return False
 
-    def _get_live_score_table(self):
+    def _get_live_score_table(self, log_if_missing=True):
         """
-        列表页主比分表：仅使用 body→main→middle→ScoreDiv 内的 #table_live。
+        列表页主比分表：优先 body→main→middle→ScoreDiv 内的 #table_live。
 
-        #middle 下 ScoreDiv（多为 span）与 #main2 等区域并列；main2 内也可能存在
-        #table_live 或同名结构。全局 querySelector('#table_live') 可能命中错误区域，
-        导致点的「欧」与主列表不一致。此处禁止未限定 ScoreDiv 的全局 #table_live。
+        #middle 下 ScoreDiv（多为 span）与 #main2 等区域并列；全局 #table_live 可能命中错误区域。
+        默认不使用全局表；设置 CRAWLER_ALLOW_GLOBAL_TABLE_LIVE=1 时与完场爬虫一致，最后回退 #table_live。
         """
         log = logging.getLogger("crawl_real")
         selectors = [
@@ -202,15 +234,27 @@ class ZhiyunScraper:
                     return el
             except Exception:
                 continue
-        log.warning(
-            "未在 middle→ScoreDiv 内找到 #table_live（已跳过全局 #table_live，避免误用 main2）"
-        )
+        if ALLOW_GLOBAL_TABLE_LIVE:
+            try:
+                el = self.driver.find_element(By.ID, "table_live")
+                if el:
+                    if log_if_missing:
+                        log.warning(
+                            "已启用 CRAWLER_ALLOW_GLOBAL_TABLE_LIVE，使用全局 #table_live（若列表错位请关闭此项）"
+                        )
+                    return el
+            except Exception:
+                pass
+        if log_if_missing:
+            log.warning(
+                "未在 middle→ScoreDiv 内找到 #table_live（未启用全局回退时可设 CRAWLER_ALLOW_GLOBAL_TABLE_LIVE=1）"
+            )
         return None
 
     def _get_first_data_row_home_team(self):
         """取当前 table_live 第一行数据的主队名（非表头），无则返回空串。"""
         try:
-            table = self._get_live_score_table()
+            table = self._get_live_score_table(log_if_missing=False)
             if not table:
                 return ""
             rows = table.find_elements(By.CSS_SELECTOR, "tr")
@@ -251,6 +295,10 @@ class ZhiyunScraper:
 
     def _collect_match_rows(self, wait, visible_only=True):
         """等待 #table_live 出现并收集数据行（非表头）。visible_only=True 时只收集当前页显示的行（style.display!='none'），与浏览器列表一致。"""
+        _table_wait_css = (
+            "#middle span#ScoreDiv #table_live, #middle #ScoreDiv #table_live, #ScoreDiv #table_live"
+            + (", #table_live" if ALLOW_GLOBAL_TABLE_LIVE else "")
+        )
         for attempt in range(2):
             try:
                 if attempt > 0 and self._ensure_valid_window():
@@ -259,7 +307,7 @@ class ZhiyunScraper:
                     EC.presence_of_element_located(
                         (
                             By.CSS_SELECTOR,
-                            "#middle span#ScoreDiv #table_live, #middle #ScoreDiv #table_live, #ScoreDiv #table_live",
+                            _table_wait_css,
                         )
                     )
                 )

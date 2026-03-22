@@ -23,6 +23,9 @@ from datetime import datetime, timedelta
 from config import DEBUG_LOG_DIR, LOG_RETENTION_DAYS
 from log_cleanup import delete_old_logs
 
+# 与 run_real.py 相同：子进程 cwd 固定为 pipeline 目录，避免 Docker 下 CWD=/app 找不到脚本。
+_PIPELINE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 def _setup_logging():
     """配置 run_final 日志到 run_final_{YYYYMMDDHH}.log。"""
@@ -71,7 +74,7 @@ def main():
     ]
     for name, cmd in steps:
         log.info(">>> 执行: %s", " ".join(cmd))
-        ret = subprocess.run([sys.executable] + cmd)
+        ret = subprocess.run([sys.executable] + cmd, cwd=_PIPELINE_DIR)
         if ret.returncode != 0:
             log.error(">>> %s 退出码 %d，流程已终止。", name, ret.returncode)
             sys.exit(ret.returncode)

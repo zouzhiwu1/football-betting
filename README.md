@@ -23,6 +23,7 @@
 ```
 football-betting/
 ├── README.md                    # 本文件
+├── .env.example                 # 根目录总环境变量模板（复制为 .env）
 ├── requirements.txt             # 顶层统一 Python 依赖（platform + pipeline 合并，可选使用）
 ├── football-betting-pipeline/   # 模块 1：爬虫 + 合并 + 计算 + 曲线图
 │   ├── run_real.py              # 即时流程入口（crawl_real → merge_data → calc_car → plot_car）
@@ -57,7 +58,7 @@ football-betting/
 | 组件 | 要求 |
 |------|------|
 | **模块 1（pipeline）** | Python 3.10+、Chrome 浏览器（爬虫用 Selenium + webdriver-manager 自动管理驱动） |
-| **模块 2（platform）** | Python 3.10+、MySQL 5.7+（或 8.x） |
+| **模块 2（platform）** | Python 3.10+、MySQL 5.7+ |
 | **模块 3（mobile）** | Node.js 18+、npm / yarn，开发时需 Expo Go 或模拟器 |
 
 ---
@@ -153,7 +154,17 @@ npx expo start
 
 ## 环境变量与配置
 
-两处会读取环境变量（或项目根目录下的 `.env`，需安装 `python-dotenv`）：
+### 仓库根目录总配置（推荐）
+
+在 **`football-betting/.env`** 集中配置 **platform + pipeline** 共用的变量（如 `DATABASE_URL`、`JWT_SECRET_KEY`、支付与爬虫相关项）。需安装 `python-dotenv`（两个子项目的 `requirements.txt` 已包含）。
+
+- 模板：**`.env.example`**（可提交到 Git）；本地执行 `cp .env.example .env` 后修改。  
+- **`.env` 已加入 `.gitignore`**，请勿提交真实密码。  
+- 加载顺序：**先读仓库根目录 `.env`**，再读 `football-betting-platform/.env` 或 `football-betting-pipeline/.env`（仅补充根目录**未出现**的键）。
+
+子目录内仍保留各自的 `.env.example` 供单独克隆某一模块时参考。
+
+### 分模块说明
 
 - **football-betting-pipeline**：工作目录、爬虫地址、下载/报告/日志路径、跨天临界点、时区、无头模式、调试开关等。  
   完整列表见 [football-betting-pipeline/README.md#配置](football-betting-pipeline/README.md) 或 `football-betting-pipeline/.env.example`。

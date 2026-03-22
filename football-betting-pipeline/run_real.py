@@ -29,6 +29,10 @@ import sys
 from config import DEBUG_LOG_DIR, LOG_RETENTION_DAYS, CUTOFF_HOUR
 from log_cleanup import delete_old_logs
 
+# 子进程里使用「脚本文件名」相对路径；必须固定 cwd 为本文件所在目录，
+# 否则在 Docker 等工作目录为 /app 时会在 /app/crawl_real.py 找文件而报错。
+_PIPELINE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 def _setup_logging():
     """配置主流程日志到 run_real_{YYYYMMDDHH}.log，并输出到终端。"""
@@ -148,7 +152,7 @@ def main():
     ]
     for name, cmd in steps:
         log.info(">>> 执行: %s", " ".join(cmd))
-        ret = subprocess.run([sys.executable] + cmd)
+        ret = subprocess.run([sys.executable] + cmd, cwd=_PIPELINE_DIR)
         if ret.returncode != 0:
             log.error(">>> %s 退出码 %d，流程已终止。", name, ret.returncode)
             sys.exit(ret.returncode)
