@@ -6,3 +6,4 @@ football-betting-report/
 .env
 football-betting-platform/.env
 football-betting-pipeline/.env
+football-betting-mobile/.env
