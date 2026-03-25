@@ -20,21 +20,27 @@ db = SQLAlchemy()
 def create_app():
     app = Flask(__name__, template_folder="templates")
 
-    # 日志：football-betting-log/platform_YYYYMMDD.log（或环境变量 LOG_FILE 固定路径）
+    # 日志：挂到 root，werkzeug 访问日志与 app 日志都会进 football-betting-log/platform_YYYYMMDD.log
+    # （仅挂 app.logger 时 werkzeug 不打进文件，易出现 0 字节）
     try:
         os.makedirs(LOG_DIR, exist_ok=True)
-        if LOG_FILE:
-            file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
-        else:
-            file_handler = DailyPlatformFileHandler(LOG_DIR, encoding="utf-8")
-        file_handler.setLevel(logging.INFO)
-        file_handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s %(levelname)s [%(name)s] %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
+        root = logging.getLogger()
+        if not any(getattr(h, "_fb_platform_handler", False) for h in root.handlers):
+            if LOG_FILE:
+                file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+            else:
+                file_handler = DailyPlatformFileHandler(LOG_DIR, encoding="utf-8")
+            file_handler.setLevel(logging.INFO)
+            file_handler.setFormatter(
+                logging.Formatter(
+                    "%(asctime)s %(levelname)s [%(name)s] %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S",
+                )
             )
-        )
-        app.logger.addHandler(file_handler)
+            file_handler._fb_platform_handler = True
+            root.addHandler(file_handler)
+            root.setLevel(logging.INFO)
+        logging.getLogger("werkzeug").setLevel(logging.INFO)
         app.logger.setLevel(logging.INFO)
     except OSError:
         pass
@@ -109,4 +115,7 @@ def create_app():
             "message": "服务器错误，请稍后重试。若为首次部署，请执行 football-betting-platform/scripts/add_membership_tables.sql 并重启。",
         }), 500
 
+    logging.info(
+        "football-betting-platform 应用已加载（后续 HTTP 访问由 werkzeug 记入本日志）"
+    )
     return app
