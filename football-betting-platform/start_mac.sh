@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # macOS：后台启动平台进程（nohup）。业务日志写入 <仓库根>/football-betting-log/platform_YYYYMMDD.log
+# 停止：./stop_mac.sh
 set -euo pipefail
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  echo "当前不是 macOS，Linux 请使用: ./run_linux.sh" >&2
+  echo "当前不是 macOS，Linux 请使用: ./start_linux.sh" >&2
   exit 1
 fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

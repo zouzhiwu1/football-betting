@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Linux：后台常驻。首次运行会自动安装 systemd 单元（需 sudo），之后仅重启服务。
 # 业务日志: <仓库根>/football-betting-log/platform_YYYYMMDD.log
+# 停止：./stop_linux.sh
 set -euo pipefail
 if [[ "$(uname -s)" != "Linux" ]]; then
-  echo "当前不是 Linux，macOS 请使用: ./run_mac.sh" >&2
+  echo "当前不是 Linux，macOS 请使用: ./start_mac.sh" >&2
   exit 1
 fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

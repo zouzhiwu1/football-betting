@@ -44,14 +44,14 @@ pip install -r requirements.txt
 
 | 环境 | 命令（在 `football-betting-platform` 目录下） |
 |------|-----------------------------------------------|
-| **macOS** | `chmod +x run_mac.sh && ./run_mac.sh` |
-| **Linux（云服务器等）** | `chmod +x run_linux.sh && ./run_linux.sh` |
+| **macOS** | `chmod +x start_mac.sh stop_mac.sh && ./start_mac.sh` |
+| **Linux（云服务器等）** | `chmod +x start_linux.sh stop_linux.sh && ./start_linux.sh` |
 
-- **macOS**：`nohup` 后台运行；同目录会写 `.platform.pid`，再次执行会先停旧进程再起。
-- **Linux**：首次运行会提示 **sudo**，自动安装 systemd 并启动；之后再执行同一脚本只做 **`systemctl restart`**。若无 systemd，会退化为与 Mac 相同的 `nohup`。
+- **macOS**：`nohup` 后台运行；同目录会写 `.platform.pid`，再次执行会先停旧进程再起。停止：`./stop_mac.sh`。
+- **Linux**：首次运行会提示 **sudo**，自动安装 systemd 并启动；之后再执行同一脚本只做 **`systemctl restart`**。若无 systemd，会退化为与 Mac 相同的 `nohup`。停止：`./stop_linux.sh`（已装 systemd 时执行 `systemctl stop`；否则按 `.platform.pid` 结束进程）。
 - **排查**：`tail -f ../football-betting-log/platform_$(date +%Y%m%d).log`；Linux 还可 `sudo systemctl status football-betting-platform`、`sudo journalctl -u football-betting-platform -f`。
 - **仅调试、要前台看控制台**：`./scripts/run.sh`（关终端即停）。
-- 若修改了 `scripts/football-betting-platform.service.example` 或更换了部署路径，可先删掉 `/etc/systemd/system/football-betting-platform.service` 后再执行 **`./run_linux.sh`**，或直接 **`sudo ./scripts/install-systemd.sh`**。
+- 若修改了 `scripts/football-betting-platform.service.example` 或更换了部署路径，可先删掉 `/etc/systemd/system/football-betting-platform.service` 后再执行 **`./start_linux.sh`**，或直接 **`sudo ./scripts/install-systemd.sh`**。
 
 ### 5. 网页
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 始终用项目内 .venv 启动，避免 SSH 重连后未 activate 导致「No module named flask」。
-# 前台调试：关终端即停。后台请用项目根目录: ./run_mac.sh 或 ./run_linux.sh
+# 前台调试：关终端即停。后台请用项目根目录: ./start_mac.sh 或 ./start_linux.sh
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"

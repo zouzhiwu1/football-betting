@@ -68,14 +68,14 @@ function downloadAuthorizedFile(url, token) {
       url,
       header: token ? { Authorization: `Bearer ${token}` } : {},
       success(res) {
+        // 有些情况下图片可能返回 304（未修改），但 downloadFile 仍可能给出 tempFilePath。
+        // 这里把 304 也视为成功，避免把“未变化”误判为下载失败。
+        const sc = res.statusCode;
         const ok =
           res.tempFilePath &&
-          (res.statusCode === undefined || res.statusCode === 200);
-        if (ok) {
-          resolve(res.tempFilePath);
-        } else {
-          reject(new Error(`download ${res.statusCode || 'fail'}`));
-        }
+          (sc === undefined || sc === 200 || sc === 304);
+        if (ok) resolve(res.tempFilePath);
+        else reject(new Error(`download ${sc || 'fail'}`));
       },
       fail: reject,
     });

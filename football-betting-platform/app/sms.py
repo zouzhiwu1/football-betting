@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-短信发送：默认 mock（通过 logging 写入 platform_*.log，与 run_mac.sh 后台运行一致）。
+短信发送：默认 mock（通过 logging 写入 platform_*.log，与 start_mac.sh 后台运行一致）。
 生产环境可替换为阿里云/腾讯云等，见 README。
 """
 import logging
