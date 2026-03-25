@@ -2,6 +2,7 @@
 """pytest 配置：测试时使用 ≥32 字节的 JWT 密钥，避免 InsecureKeyLengthWarning。"""
 import os
 import secrets
+import tempfile
 
 import pytest
 
@@ -9,6 +10,11 @@ import pytest
 if len(os.environ.get("JWT_SECRET_KEY", "")) < 32:
     os.environ["JWT_SECRET_KEY"] = (
         "test-secret-key-at-least-32-bytes-long-for-pytest"
+    )
+# 测试固定单一日志文件，不写入仓库 football-betting-log
+if not os.environ.get("LOG_FILE"):
+    os.environ["LOG_FILE"] = os.path.join(
+        tempfile.gettempdir(), "football_betting_platform_pytest.log"
     )
 
 @pytest.fixture

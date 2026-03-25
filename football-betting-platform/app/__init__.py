@@ -8,6 +8,7 @@ from flask_cors import CORS
 
 from config import (
     CURVES_REQUIRE_ACTIVE_MEMBERSHIP,
+    DailyPlatformFileHandler,
     JWT_SECRET_KEY,
     LOG_DIR,
     LOG_FILE,
@@ -19,10 +20,13 @@ db = SQLAlchemy()
 def create_app():
     app = Flask(__name__, template_folder="templates")
 
-    # 日志写入 football-betting-log/platform.log
+    # 日志：football-betting-log/platform_YYYYMMDD.log（或环境变量 LOG_FILE 固定路径）
     try:
         os.makedirs(LOG_DIR, exist_ok=True)
-        file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+        if LOG_FILE:
+            file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+        else:
+            file_handler = DailyPlatformFileHandler(LOG_DIR, encoding="utf-8")
         file_handler.setLevel(logging.INFO)
         file_handler.setFormatter(
             logging.Formatter(

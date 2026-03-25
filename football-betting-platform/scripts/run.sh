@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 始终用项目内 .venv 启动，避免 SSH 重连后未 activate 导致「No module named flask」。
-# 前台运行：关终端会结束进程。需要常驻请执行一次：sudo ./scripts/install-systemd.sh
+# 前台运行：关终端会结束进程。后台: sudo ./scripts/server install；日志 ../football-betting-log/platform_YYYYMMDD.log
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"

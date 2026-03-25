@@ -39,40 +39,31 @@ python run.py
 
 服务默认在 `http://127.0.0.1:5001`（端口可在 `.env` 中设置 `PORT`）。
 
-若在终端里**前台**运行 `python run.py` 或 `./scripts/run.sh`，进程挂在该 shell 上；**关闭 Workbench、断开 SSH 或合上笔记本**，系统会向会话发挂断信号，进程通常会**一起退出**——这不是“服务器关机”，只是你手动起的那段 Python 结束了。要避免这种现象：
+### 云服务器：后台运行 + 固定日志（推荐）
 
-- **推荐**：用下面的 **systemd**（或 Supervisor），由系统托管进程，**与是否开着终端无关**，还可开机自启、崩溃自动拉起。
-- **临时**：`nohup ./scripts/run.sh >> ~/football-platform.log 2>&1 &`（关终端一般仍可继续跑）；或装 **`tmux` / `screen`**，在会话里启动后 **detach**（例如 tmux 里 `Ctrl+b` 再按 `d`），再关窗口。
+**macOS / Windows 本地开发不要执行 `scripts/server`**（没有 systemd）。本地在项目目录用 **`./scripts/run.sh`** 或 **`.venv/bin/python run.py`** 即可。
 
-### 服务器上避免「重连后又报 No module named flask」
+用 **systemd** 托管进程：**关终端、断 SSH 仍运行**。业务日志由应用写入 **`football-betting-log/platform_YYYYMMDD.log`**（与 pipeline 同级目录，即 `football-betting-platform` 的上一级下的 `football-betting-log/`）；Werkzeug/未接入 app.logger 的输出可在 `journalctl` 查看。**不要**每次报错都重装单元——装好后日常只用 **restart**。
 
-`source .venv/bin/activate` **只对当前终端有效**，SSH / Workbench 断线重连后容易直接用系统 `python`，依赖未装在系统环境里就会再报错。
+**首次（或以后改了 `scripts/football-betting-platform.service.example`、换了部署路径）：**
 
-**推荐（任选其一）：**
+```bash
+cd football-betting-platform
+chmod +x scripts/server scripts/run.sh scripts/install-systemd.sh
+sudo ./scripts/server install
+```
 
-1. **始终用项目自带脚本启动**（内部固定调用 `.venv/bin/python`，与是否 activate 无关）：
+**日常：**
 
-   ```bash
-   cd football-betting-platform
-   chmod +x scripts/run.sh
-   ./scripts/run.sh
-   ```
+| 动作 | 命令 |
+|------|------|
+| 重启（改代码、`pip install` 后） | `sudo ./scripts/server restart` |
+| 启动 / 停止 | `sudo ./scripts/server start` / `stop` |
+| 状态 | `./scripts/server status` |
+| **看运行日志** | `./scripts/server logs`（即当天 `tail -f ../football-betting-log/platform_YYYYMMDD.log`） |
+| systemd 汇总日志 | `./scripts/server journal` |
 
-2. **不显式激活时**，也可直接：
-
-   ```bash
-   .venv/bin/python run.py
-   ```
-
-3. **长期运行**请用 **systemd**（崩溃自动拉起、开机自启，不依赖手工开终端）。**为何不搞进 `run.sh`：** `run.sh` 只做「当前用户、当前会话里启动一次 Python」；systemd 要**写 `/etc/systemd/system/`、要 root**，属于安装步骤，和每次启动混在一处容易误操作，也无法在普通用户下完成。推荐一键安装：
-
-   ```bash
-   cd football-betting-platform
-   chmod +x scripts/install-systemd.sh
-   sudo ./scripts/install-systemd.sh
-   ```
-
-   脚本会按当前项目绝对路径生成单元文件（由 `scripts/football-betting-platform.service.example` 中的 `@INSTALL_ROOT@` 替换）。若要手写，可编辑模板后自行 `tee` 到 `/etc/systemd/system/`。
+本地/临时排错仍可用前台：`./scripts/run.sh`（关终端即停）。`run.sh` 固定使用 `.venv/bin/python`，避免未 `activate` 时出现 `No module named flask`。
 
 ### 4. 网页
 

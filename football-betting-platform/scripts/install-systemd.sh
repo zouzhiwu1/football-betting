@@ -1,12 +1,21 @@
 #!/usr/bin/env bash
-# 一键安装 systemd 单元并 enable --now（需 root）。关终端、SSH 断线不影响进程。
+# 安装/更新 systemd 单元（可反复执行）。日常改代码或 pip 后: sudo ./scripts/server restart
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SERVICE_NAME="football-betting-platform"
 TEMPLATE="${SCRIPT_DIR}/${SERVICE_NAME}.service.example"
 TARGET="/etc/systemd/system/${SERVICE_NAME}.service"
+WORK_ROOT="$(cd "${ROOT}/.." && pwd)"
+APP_LOG_DIR="${WORK_ROOT}/football-betting-log"
+DAY="$(date +%Y%m%d)"
+APP_LOG="${APP_LOG_DIR}/platform_${DAY}.log"
 
+if ! command -v systemctl >/dev/null 2>&1; then
+  echo "未找到 systemctl：本脚本只用于带 systemd 的 Linux（如云服务器），macOS 请勿执行。" >&2
+  echo "在 Mac 上开发请: cd \"$(cd "${SCRIPT_DIR}/.." && pwd)\" && ./scripts/run.sh" >&2
+  exit 1
+fi
 if [[ ! -f "$TEMPLATE" ]]; then
   echo "找不到模板: $TEMPLATE" >&2
   exit 1
@@ -22,13 +31,23 @@ if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
   exit 1
 fi
 
+mkdir -p "$APP_LOG_DIR"
+chmod 755 "$APP_LOG_DIR"
+
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
 sed "s|@INSTALL_ROOT@|${ROOT}|g" "$TEMPLATE" >"$tmp"
 install -m 0644 "$tmp" "$TARGET"
 
 systemctl daemon-reload
-systemctl enable --now "$SERVICE_NAME"
-echo "已写入 $TARGET 并已启动: $SERVICE_NAME"
-echo "查看状态: systemctl status $SERVICE_NAME"
-echo "看日志:   journalctl -u $SERVICE_NAME -f"
+systemctl enable "$SERVICE_NAME"
+systemctl restart "$SERVICE_NAME"
+
+echo ""
+echo "=== football-betting-platform 已安装并重启 ==="
+echo "业务日志:  $APP_LOG_DIR/platform_YYYYMMDD.log  （当天示例: $APP_LOG）"
+echo "看今天日志: ${ROOT}/scripts/server logs"
+echo "重启服务: sudo ${ROOT}/scripts/server restart"
+echo "仅当改了单元模板或项目路径变了再: sudo ${ROOT}/scripts/server install"
+echo "状态:      ${ROOT}/scripts/server status"
+echo ""

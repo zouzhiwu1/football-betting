@@ -2,6 +2,8 @@
 """
 平台配置。通过环境变量或 .env 配置。
 """
+import datetime
+import logging
 import os
 from urllib.parse import urlparse, unquote
 
@@ -94,12 +96,36 @@ CURVE_IMAGE_DIR = os.environ.get("CURVE_IMAGE_DIR", _def_report)
 _CURVES_REQ = os.environ.get("CURVES_REQUIRE_ACTIVE_MEMBERSHIP", "1").strip().lower()
 CURVES_REQUIRE_ACTIVE_MEMBERSHIP = _CURVES_REQ not in ("0", "false", "no", "off")
 
-# 平台日志目录（与 pytest 覆盖率 htmlcov 同级，在 football-betting-log 下）
+# 平台日志目录（与 pipeline 一致：仓库根下 football-betting-log）
 LOG_DIR = os.environ.get(
     "LOG_DIR",
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "football-betting-log")
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "football-betting-log"),
 )
-LOG_FILE = os.environ.get("LOG_FILE", os.path.join(LOG_DIR, "platform.log"))
+# 若设置 LOG_FILE 则写入该固定路径（测试或特殊部署）；否则为 platform_YYYYMMDD.log 按自然日切换
+LOG_FILE = os.environ.get("LOG_FILE", "").strip()
+
+
+class DailyPlatformFileHandler(logging.FileHandler):
+    """写入 LOG_DIR/platform_YYYYMMDD.log，跨自然日自动换文件。"""
+
+    def __init__(self, log_dir, encoding="utf-8"):
+        self.log_dir = log_dir
+        os.makedirs(log_dir, exist_ok=True)
+        self._current_date = datetime.date.today()
+        path = self._path_for_date(self._current_date)
+        super().__init__(path, encoding=encoding, delay=False)
+
+    def _path_for_date(self, d: datetime.date) -> str:
+        return os.path.join(self.log_dir, f"platform_{d.strftime('%Y%m%d')}.log")
+
+    def emit(self, record):
+        today = datetime.date.today()
+        if self._current_date != today:
+            self.close()
+            self.baseFilename = os.path.abspath(self._path_for_date(today))
+            self.stream = self._open()
+            self._current_date = today
+        super().emit(record)
 
 # ---------------------------------------------------------------------------
 # 支付宝 / 会员标价（支付回调开通会员）
