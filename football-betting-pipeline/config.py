@@ -6,14 +6,16 @@
   CRAWLER_REPORT_DIR  报告目录（calc_car 的 car_{YYYYMMDD}.xlsx、plot_car 的 {主队}_VS_{客队}.png，其下按 YYYYMMDD 子目录）
   CRAWLER_CUTOFF_HOUR  跨天时间临界点（时，0～23），默认 12
   CRAWLER_TIMEZONE  用于“当前时间”的时区（决定下载目录/文件名），默认 Asia/Tokyo
-  CRAWLER_HEADLESS  设为 1 则无头模式（不弹窗），默认 1
+  CRAWLER_HEADLESS  设为 1/true 则无头模式（不弹窗），默认 1
   CRAWLER_DEBUG_LOG_DIR  日志目录（定时任务日志、debug_export_page_*.html 等），默认 football-betting-log
   CRAWLER_LOG_RETENTION_DAYS  日志保留天数，超过此天数的日志文件将被删除，默认 7
   CRAWLER_DEBUG_MAX_MATCHES  调试时最多抓取场数，0 表示不限制；设为 3 可快速跑通 main 流程验证
+  CRAWLER_DEBUG_MATCH_KEYWORDS  球队白名单关键词（逗号分隔）；设为空字符串表示不限制球队
   CRAWLER_TARGET_LEAGUES  联赛白名单（逗号分隔）；设为空字符串表示不限制联赛
   CRAWLER_EXPORT_EXCEL_MAX_ATTEMPTS  单场「导出 Excel」最多重试次数（默认 3）
   CRAWLER_MATCH_FILTER_VISIBLE_ONLY  1=只收集页面上可见行；0=含 DOM 隐藏行
   CRAWLER_MATCH_STATUS_MODES  状态过滤，逗号分隔：not_started,live,finished（默认 not_started）
+  CRAWLER_MATCH_REQUIRE_JIAN  1=仅保留包含“荐”的比赛；0=不过滤“荐”（默认 1）
   CRAWLER_CHROME_USER_AGENT  覆盖 Chrome User-Agent（默认桌面 Chrome，避免 HeadlessChrome 被拒）
   CRAWLER_CHROME_DISABLE_HTTP2  设为 1 时禁用 HTTP/2（排查协议问题时使用）
   CRAWLER_CHROME_BINARY  浏览器可执行文件路径（Docker 内常见 /usr/bin/chromium）；简写 CHROME_BINARY 亦有效
@@ -26,6 +28,11 @@
   DATABASE_URL  与 football-betting-platform 相同（mysql+pymysql://...），供 evaluation_matches 入表/出表；未设置则跳过
 """
 import os
+
+
+def _env_flag(name: str, default: str = "0") -> bool:
+    """将环境变量解析为布尔值，兼容 1/true/yes/on。"""
+    return os.environ.get(name, default).strip().lower() in ("1", "true", "yes", "on")
 
 # 始终先加载与 config.py 同目录下的 .env（即 football-betting-pipeline/.env），
 # 避免从仓库根目录或其他 cwd 运行 run_real / plot_car 时读不到 DATABASE_URL。
@@ -75,7 +82,7 @@ TRIGGER_HOURS = [
 TRIGGER_HOURS.sort()
 # 用于“当前时间”的时区（避免服务器 UTC 导致临界点错位）
 TIMEZONE = os.environ.get("CRAWLER_TIMEZONE", "Asia/Tokyo")
-HEADLESS = os.environ.get("CRAWLER_HEADLESS", "1") == "1"
+HEADLESS = _env_flag("CRAWLER_HEADLESS", "1")
 # Chrome User-Agent：无头模式默认 UA 常含 HeadlessChrome，易被目标站拒绝；与「curl + 桌面 Chrome UA」成功时保持一致。
 _DEFAULT_CHROME_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -108,14 +115,19 @@ DEBUG_LOG_DIR = os.environ.get(
 LOG_RETENTION_DAYS = int(os.environ.get("CRAWLER_LOG_RETENTION_DAYS", "7"))
 # 调试：最多抓取场数，0=不限制；设为 3 时只抓 3 场即结束，便于快速验证 run_real.py 全流程
 DEBUG_MAX_MATCHES = int(os.environ.get("CRAWLER_DEBUG_MAX_MATCHES", "0"))
-# 调试：仅抓取包含指定关键词的比赛（主队或客队含任一关键词）。
+# 球队白名单：主队/客队名称包含任一关键词才保留。
+# 用法与联赛白名单一致：环境变量存在时按其覆盖；值为空字符串表示不限制球队。
 # 例如: CRAWLER_DEBUG_MATCH_KEYWORDS="帕纳辛纳科斯,里尔,博洛尼亚"
-_match_keywords_raw = os.environ.get("CRAWLER_DEBUG_MATCH_KEYWORDS", "")
-DEBUG_MATCH_KEYWORDS = [
-    kw.strip()
-    for kw in _match_keywords_raw.split(",")
-    if kw.strip()
-]
+_DEFAULT_TEAM_WHITELIST_KEYWORDS = ""
+_team_keywords_env = os.environ.get("CRAWLER_DEBUG_MATCH_KEYWORDS")
+if _team_keywords_env is not None:
+    TEAM_WHITELIST_KEYWORDS = [
+        kw.strip() for kw in _team_keywords_env.split(",") if kw.strip()
+    ]
+else:
+    TEAM_WHITELIST_KEYWORDS = [
+        kw.strip() for kw in _DEFAULT_TEAM_WHITELIST_KEYWORDS.split(",") if kw.strip()
+    ]
 
 # 足彩子菜单：目前只抓取「北单」
 ZUCAI_MENU_OPTIONS = ["北单"]
@@ -125,7 +137,7 @@ ZUCAI_MENU_OPTIONS = ["北单"]
 _DEFAULT_TARGET_LEAGUES = (
     "澳超,罗甲,波兰超,奥甲,奥乙,意甲,意乙,德甲,德乙,法甲,法乙,英超,英冠,英甲,英乙,"
     "荷甲,荷乙,比甲,比乙,西甲,西乙,爱超,爱甲,葡超,葡甲,阿甲,墨西联春,日职联,日职乙,"
-    "韩K联,韩K2联,丹麦甲,苏超,苏冠,瑞士超,瑞士甲,挪超,美职业,巴西甲,巴西乙,智利甲,希腊超,欧洲预选,国际友谊,世界杯附加,欧国联"
+    "韩K联,韩K2联,丹麦甲,苏超,苏冠,瑞士超,瑞士甲,挪超,美职业,巴西甲,巴西乙,智利甲,希腊超,欧洲预选,国际友谊,世界杯附,欧国联"
 )
 _target_leagues_env = os.environ.get("CRAWLER_TARGET_LEAGUES")
 if _target_leagues_env is not None:
@@ -148,6 +160,8 @@ MATCH_STATUS_MODES = [x.strip().lower() for x in _status_modes_raw.split(",") if
 if not MATCH_STATUS_MODES:
     MATCH_STATUS_MODES = ["not_started"]
 # 3) 联赛：TARGET_LEAGUE_NAMES；空列表表示不限制（见上）
+# 4) 推荐：是否仅保留记录里包含“荐”的比赛（默认开启）
+MATCH_REQUIRE_JIAN = _env_flag("CRAWLER_MATCH_REQUIRE_JIAN", "1")
 
 # 即时比分：strict 选择器找不到主表时是否允许回退到页面内任意 #table_live（默认关，避免误用 main2）
 ALLOW_GLOBAL_TABLE_LIVE = os.environ.get(

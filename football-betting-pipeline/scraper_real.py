@@ -37,9 +37,10 @@ from config import (
     DEBUG_LOG_DIR,
     CUTOFF_HOUR,
     DEBUG_MAX_MATCHES,
-    DEBUG_MATCH_KEYWORDS,
+    TEAM_WHITELIST_KEYWORDS,
     ZUCAI_MENU_OPTIONS,
     MATCH_FILTER_VISIBLE_ONLY,
+    MATCH_REQUIRE_JIAN,
     TARGET_LEAGUE_NAMES,
     ALLOW_GLOBAL_TABLE_LIVE,
     COL_LEAGUE,
@@ -151,16 +152,41 @@ class ZhiyunScraper:
                 n_after_league,
                 n_after_status - n_after_league,
             )
+            if TEAM_WHITELIST_KEYWORDS:
+                log.info(
+                    "【球队白名单】已启用，共 %d 个关键词；不匹配的场次将被跳过",
+                    len(TEAM_WHITELIST_KEYWORDS),
+                )
+            else:
+                log.info(
+                    "【球队白名单】未启用（CRAWLER_DEBUG_MATCH_KEYWORDS 为空），不限制球队"
+                )
+            match_rows = [
+                row for row in match_rows if self._row_matches_team_whitelist(row)
+            ]
+            n_after_team = len(match_rows)
+            log.info(
+                "【球队白名单】%d -> %d 场（剔除 %d）",
+                n_after_league,
+                n_after_team,
+                n_after_league - n_after_team,
+            )
+            if MATCH_REQUIRE_JIAN:
+                log.info("【荐过滤】当前设置：仅保留含“荐”的场次")
+                match_rows = [row for row in match_rows if self._row_has_jian(row)]
+                n_after_jian = len(match_rows)
+                log.info(
+                    "【荐过滤】%d -> %d 场（剔除 %d）",
+                    n_after_league,
+                    n_after_jian,
+                    n_after_league - n_after_jian,
+                )
+            else:
+                log.info("【荐过滤】当前设置：未启用（CRAWLER_MATCH_REQUIRE_JIAN=0）")
             log.info("--- 主队 vs 客队（将依次尝试导出）---")
             for i, row in enumerate(match_rows, 1):
                 home = self._get_cell_text(row, COL_HOME)
                 away = self._get_cell_text(row, COL_AWAY)
-
-                # 若配置了 DEBUG_MATCH_KEYWORDS，则仅抓取主队/客队名称包含任一关键词的比赛
-                if DEBUG_MATCH_KEYWORDS:
-                    text = f"{home} {away}"
-                    if not any(kw in text for kw in DEBUG_MATCH_KEYWORDS):
-                        continue
 
                 log.info("%d. %s vs %s", i, home, away)
                 self._download_excel_for_row(wait, row, i, home, away, time_suffix=self._run_time_suffix)
@@ -785,6 +811,54 @@ class ZhiyunScraper:
             text = text.strip()
         # 将单元格中的换行/tab 等压缩为单个空格，避免日志被拆成多行
         return " ".join(text.split())
+
+    def _row_has_jian(self, row) -> bool:
+        """
+        比赛行是否包含“荐”标记。
+        仅识别“可见”的荐标记，避免 hidden 文本导致全部命中。
+        """
+        try:
+            # 1) 行内可见文本包含“荐”
+            text = (row.text or "").strip()
+            if "荐" in text:
+                return True
+
+            # 2) 行内可见元素的文本包含“荐”
+            candidates = row.find_elements(
+                By.XPATH,
+                ".//*[contains(normalize-space(string(.)), '荐')]",
+            )
+            for el in candidates:
+                try:
+                    if el.is_displayed() and "荐" in (el.text or ""):
+                        return True
+                except Exception:
+                    continue
+
+            # 3) 部分页面用图标表示“荐”，识别可见 img 的 alt/title
+            icon_candidates = row.find_elements(
+                By.XPATH,
+                ".//img[contains(@alt,'荐') or contains(@title,'荐')]",
+            )
+            for el in icon_candidates:
+                try:
+                    if el.is_displayed():
+                        return True
+                except Exception:
+                    continue
+
+            return False
+        except Exception:
+            return False
+
+    def _row_matches_team_whitelist(self, row) -> bool:
+        """主队/客队命中任一球队白名单关键词时返回 True。白名单为空表示不限制。"""
+        if not TEAM_WHITELIST_KEYWORDS:
+            return True
+        home = self._get_cell_text(row, COL_HOME)
+        away = self._get_cell_text(row, COL_AWAY)
+        text = f"{home} {away}"
+        return any(kw in text for kw in TEAM_WHITELIST_KEYWORDS)
 
     def _is_status_empty(self, status_text: str) -> bool:
         """状态列为空（空白或「-」）时返回 True，仅此类比赛会下载；「比赛中」「完」等返回 False。"""
