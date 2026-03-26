@@ -1,4 +1,5 @@
 const api = require('../../utils/api.js');
+const BATCH_SIZE = 1;
 
 function todayYmd() {
   const now = new Date();
@@ -23,7 +24,10 @@ Page({
     pickerDate: '',
     team: '',
     items: [],
+    allItems: [],
+    loadedCount: 0,
     searching: false,
+    loadingMore: false,
     inlineHint: '',
   },
 
@@ -87,7 +91,14 @@ Page({
       return;
     }
     const team = (this.data.team || '').trim();
-    this.setData({ searching: true, items: [], inlineHint: '' });
+    this.setData({
+      searching: true,
+      items: [],
+      allItems: [],
+      loadedCount: 0,
+      loadingMore: false,
+      inlineHint: '',
+    });
     const q = `date=${encodeURIComponent(d)}&team=${encodeURIComponent(team)}`;
     try {
       const { ok, status, data } = await api.request(`/api/curves/search?${q}`, {
@@ -113,32 +124,55 @@ Page({
           inlineHint: team ? '该日期下没有与该球队相关的曲线图' : '该日期下没有可展示的曲线图',
         });
       }
-      const enriched = [];
-      for (let i = 0; i < list.length; i += 1) {
-        const it = list[i];
-        const url = api.curveImageUrl(it.date, it.filename);
-        try {
-          const localPath = await api.downloadAuthorizedFile(url, token);
-          enriched.push({
-            ...it,
-            localPath,
-            loadError: false,
-            k: `${it.date}-${it.filename}-${i}`,
-          });
-        } catch {
-          enriched.push({
-            ...it,
-            localPath: '',
-            loadError: true,
-            k: `${it.date}-${it.filename}-${i}`,
-          });
-        }
+      this.setData({ allItems: list, loadedCount: 0, items: [] });
+      if (list.length > 0) {
+        await this.loadNextBatch();
       }
-      this.setData({ items: enriched });
     } catch {
       this.setData({ inlineHint: '网络错误，请稍后重试' });
     } finally {
       this.setData({ searching: false });
     }
+  },
+
+  async loadNextBatch() {
+    if (this.data.loadingMore) return;
+    const token = api.getToken();
+    if (!token) return;
+    const start = this.data.loadedCount || 0;
+    const all = this.data.allItems || [];
+    if (start >= all.length) return;
+    const end = Math.min(start + BATCH_SIZE, all.length);
+    this.setData({ loadingMore: true });
+    const appended = [];
+    for (let i = start; i < end; i += 1) {
+      const it = all[i];
+      const url = api.curveImageUrl(it.date, it.filename);
+      try {
+        const localPath = await api.downloadAuthorizedFile(url, token);
+        appended.push({
+          ...it,
+          localPath,
+          loadError: false,
+          k: `${it.date}-${it.filename}-${i}`,
+        });
+      } catch {
+        appended.push({
+          ...it,
+          localPath: '',
+          loadError: true,
+          k: `${it.date}-${it.filename}-${i}`,
+        });
+      }
+    }
+    this.setData({
+      items: (this.data.items || []).concat(appended),
+      loadedCount: end,
+      loadingMore: false,
+    });
+  },
+
+  onReachResultBottom() {
+    this.loadNextBatch();
   },
 });

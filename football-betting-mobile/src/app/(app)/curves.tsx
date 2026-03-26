@@ -4,12 +4,13 @@ import DateTimePicker, { DateTimePickerAndroid, type DateTimePickerEvent } from 
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,10 +21,13 @@ import { useAuth } from '@/context/AuthContext';
 import { UI } from '@/constants/ui';
 
 export default function CurvesScreen() {
+  const PAGE_SIZE = 3;
   const { token } = useAuth();
+  const { width: screenWidth } = useWindowDimensions();
   const [date, setDate] = useState('');
   const [team, setTeam] = useState('');
   const [items, setItems] = useState<CurveItem[]>([]);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [searching, setSearching] = useState(false);
   const [showDatePickerIOS, setShowDatePickerIOS] = useState(false);
   const [inlineHint, setInlineHint] = useState('');
@@ -85,6 +89,7 @@ export default function CurvesScreen() {
     }
     setSearching(true);
     setItems([]);
+    setVisibleCount(PAGE_SIZE);
     setInlineHint('');
     try {
       const { ok, status, data } = await searchCurves(tk, d, teamValue);
@@ -101,6 +106,7 @@ export default function CurvesScreen() {
       }
       const list = data.items || [];
       setItems(list);
+      setVisibleCount(Math.min(PAGE_SIZE, list.length || PAGE_SIZE));
       if (list.length === 0 && !data.member_only) {
         setInlineHint(teamValue ? '该日期下没有与该球队相关的曲线图' : '该日期下没有可展示的曲线图');
       } else if (list.length > 0) {
@@ -136,6 +142,15 @@ export default function CurvesScreen() {
   };
 
   const authHeader = token ? { Authorization: `Bearer ${token}` } : undefined;
+  const imageWidth = Math.max(240, screenWidth - 12 * 2 - 10 * 2);
+  const imageHeight = (imageWidth * 17) / 9;
+  const visibleItems = items.slice(0, visibleCount);
+  const hasMore = visibleCount < items.length;
+
+  const loadMore = () => {
+    if (!hasMore || searching) return;
+    setVisibleCount((prev) => Math.min(prev + PAGE_SIZE, items.length));
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
@@ -185,27 +200,40 @@ export default function CurvesScreen() {
           {!!inlineHint && <Text style={styles.inlineHint}>{inlineHint}</Text>}
         </View>
 
-        <ScrollView
+        <FlatList
           style={styles.resultsScroll}
           contentContainerStyle={styles.resultsContent}
-          keyboardShouldPersistTaps="handled">
-          {items.map((it) => {
+          data={visibleItems}
+          keyExtractor={(it) => `${it.date}-${it.filename}`}
+          keyboardShouldPersistTaps="handled"
+          onEndReachedThreshold={0.35}
+          onEndReached={loadMore}
+          initialNumToRender={PAGE_SIZE}
+          windowSize={4}
+          renderItem={({ item: it }) => {
             const uri = curveImageUrl(it.date, it.filename);
             return (
-              <View key={`${it.date}-${it.filename}`} style={styles.card}>
+              <View style={styles.card}>
                 <Text style={styles.cardTitle}>
                   {it.home} VS {it.away}
                 </Text>
                 <Image
                   source={{ uri, headers: authHeader }}
-                  style={styles.img}
+                  style={[styles.img, { width: imageWidth, height: imageHeight }]}
                   contentFit="contain"
                   transition={200}
                 />
               </View>
             );
-          })}
-        </ScrollView>
+          }}
+          ListFooterComponent={
+            hasMore ? (
+              <TouchableOpacity style={styles.loadMoreBtn} onPress={loadMore}>
+                <Text style={styles.loadMoreText}>继续加载更多...</Text>
+              </TouchableOpacity>
+            ) : null
+          }
+        />
       </View>
     </SafeAreaView>
   );
@@ -213,71 +241,86 @@ export default function CurvesScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: UI.bg },
-  page: { flex: 1, padding: 16 },
+  page: { flex: 1, paddingHorizontal: 8, paddingTop: 10, paddingBottom: 8 },
   form: {
     backgroundColor: UI.card,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: UI.border,
-    padding: 16,
-    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 8,
   },
   resultsScroll: { flex: 1 },
-  resultsContent: { paddingBottom: 32 },
-  label: { fontSize: 13, color: UI.muted, marginBottom: 6 },
+  resultsContent: { paddingBottom: 16 },
+  label: { fontSize: 12, color: UI.muted, marginBottom: 4 },
   input: {
     backgroundColor: UI.bg,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: UI.border,
-    padding: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
     color: UI.text,
-    fontSize: 16,
-    marginBottom: 10,
+    fontSize: 15,
+    marginBottom: 8,
   },
   datePickerBtn: {
     backgroundColor: UI.bg,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: UI.border,
-    padding: 12,
-    marginBottom: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    marginBottom: 8,
   },
-  datePickerText: { color: UI.text, fontSize: 16 },
+  datePickerText: { color: UI.text, fontSize: 15 },
   iosPickerWrap: {
     borderWidth: 1,
     borderColor: UI.border,
     borderRadius: 10,
-    marginBottom: 10,
+    marginBottom: 8,
     overflow: 'hidden',
     backgroundColor: UI.card,
   },
   iosPickerHeader: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: UI.border,
     alignItems: 'flex-end',
   },
   iosPickerDone: { color: UI.accent, fontSize: 15, fontWeight: '600' },
   btn: {
-    marginTop: 8,
+    marginTop: 4,
     backgroundColor: UI.accent,
     borderRadius: 999,
-    paddingVertical: 12,
+    paddingVertical: 9,
     alignItems: 'center',
   },
   btnDisabled: { opacity: 0.7 },
-  btnText: { color: '#022c22', fontWeight: '600', fontSize: 16 },
-  inlineHint: { marginTop: 8, fontSize: 12, color: UI.muted },
+  btnText: { color: '#022c22', fontWeight: '600', fontSize: 15 },
+  inlineHint: { marginTop: 6, fontSize: 11, color: UI.muted },
   card: {
     backgroundColor: UI.card,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: UI.border,
-    padding: 12,
-    marginBottom: 16,
+    padding: 8,
+    marginBottom: 10,
+    alignItems: 'center',
   },
-  cardTitle: { color: UI.text, fontSize: 15, fontWeight: '600', marginBottom: 8 },
-  img: { width: '100%', height: 380, backgroundColor: UI.bg },
+  cardTitle: { color: UI.text, fontSize: 16, fontWeight: '600', marginBottom: 8, alignSelf: 'stretch' },
+  img: { backgroundColor: UI.bg },
+  loadMoreBtn: {
+    alignSelf: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: UI.border,
+    marginTop: 2,
+    marginBottom: 10,
+  },
+  loadMoreText: { color: UI.muted, fontSize: 12 },
 });

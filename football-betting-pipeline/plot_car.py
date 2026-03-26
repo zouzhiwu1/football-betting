@@ -91,7 +91,7 @@ def _annotate_line_points(ax, x_vals, y_vals, color: str, decimal_places: int = 
             textcoords="offset points",
             xytext=(0, 6),
             ha="center",
-            fontsize=7,
+            fontsize=15,
             color=color,
             clip_on=True,
         )
@@ -224,26 +224,11 @@ def plot_match_curves(data_dir: str, project_dir: str) -> int:
             continue
         home_str = str(home).strip()
         away_str = str(away).strip()
-        prediction = _compute_prediction(grp, data)
         times = grp[data.columns[COL_TIME]].astype(str).tolist()
-        # 时间点范围：起始～终止，格式 YYYYMMDDHH；不足 10 位则原样显示
-        def _to_yyyymmddhh(t: str) -> str:
-            s = (t or "").strip()
-            if len(s) >= 10 and s[:10].isdigit():
-                return s[:10]
-            return s
-        start_ts = _to_yyyymmddhh(times[0]) if times else ""
-        end_ts = _to_yyyymmddhh(times[-1]) if times else ""
-        time_range_str = f"时间点：{start_ts}～{end_ts}" if (start_ts and end_ts) else "时间点：—"
         times_display = [_time_point_to_mmddhh(t) for t in times]
 
-        # 为手机端展示优化：偏竖屏比例、较高分辨率，便于在窄屏上查看
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(6, 10))
-        fig.suptitle(f"{home_str} VS {away_str}", fontsize=14, fontweight="bold", y=0.99)
-        # 左上角：时间点范围、预测结果（置于主标题与欧赔曲线图之间的空隙，对齐虚线框）
-        fig.text(0.02, 0.96, f"{time_range_str}\n预测结果：{prediction}", fontsize=11,
-                 verticalalignment="top", horizontalalignment="left",
-                 transform=fig.transFigure)
+        # 为手机端展示优化：去掉顶部冗余信息并略放大整体图幅
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(9.0, 17.0))
 
         # ---------- 欧赔指数曲线图 ----------
         # 第 1 节点：初指 D/E/F；第 2～N+1 节点：即时 G/H/I（N = 该场比赛时间点数量，由表决定）
@@ -265,9 +250,10 @@ def plot_match_curves(data_dir: str, project_dir: str) -> int:
         _annotate_line_points(ax1, x_pos, y_away, "C2")
         ax1.set_xticks(x_pos)
         ax1.set_xticklabels(x_labels, rotation=45, ha="right")
-        ax1.set_ylabel("评估值", fontsize=11)
-        ax1.set_title("欧赔指数曲线图", fontsize=12)
-        ax1.legend(loc="best")
+        ax1.tick_params(axis="both", labelsize=17)
+        ax1.set_ylabel("评估值", fontsize=17)
+        ax1.set_title("欧赔指数曲线图", fontsize=20)
+        ax1.legend(loc="best", fontsize=13)
         ax1.grid(True, alpha=0.3)
 
         # ---------- 凯利指数曲线图 ----------
@@ -301,10 +287,11 @@ def plot_match_curves(data_dir: str, project_dir: str) -> int:
         )
         ax2.set_xticks(x_kelly)
         ax2.set_xticklabels(times_display, rotation=45, ha="right")
-        ax2.set_xlabel("时间点", fontsize=11)
-        ax2.set_ylabel("凯利指数", fontsize=11)
-        ax2.set_title("凯利指数曲线图", fontsize=12)
-        ax2.legend(loc="best")
+        ax2.tick_params(axis="both", labelsize=17)
+        ax2.set_xlabel("时间点", fontsize=17)
+        ax2.set_ylabel("凯利指数", fontsize=17)
+        ax2.set_title("凯利指数曲线图", fontsize=20)
+        ax2.legend(loc="best", fontsize=13)
         ax2.grid(True, alpha=0.3)
         k_main = grp[data.columns[COL_KELLY_MAIN]].tolist()
         k_draw = grp[data.columns[COL_KELLY_DRAW]].tolist()
@@ -313,12 +300,12 @@ def plot_match_curves(data_dir: str, project_dir: str) -> int:
         _annotate_line_points(ax2, x_kelly, k_draw, "C1")
         _annotate_line_points(ax2, x_kelly, k_away, "C2")
 
-        plt.tight_layout(rect=[0, 0, 1, 0.86])
+        plt.tight_layout()
         os.makedirs(report_dir, exist_ok=True)
         safe_name = f"{_safe_filename(home_str)}_VS_{_safe_filename(away_str)}.png"
         out_path = os.path.join(report_dir, safe_name)
         # 提升 dpi 以在手机端放大时保持清晰
-        plt.savefig(out_path, dpi=200, bbox_inches="tight")
+        plt.savefig(out_path, dpi=240, bbox_inches="tight")
         plt.close()
         # 相对路径以 pipeline 父目录为根，与全项目日志路径风格一致
         _display_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
