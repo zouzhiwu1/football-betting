@@ -125,7 +125,7 @@ ZUCAI_MENU_OPTIONS = ["北单"]
 _DEFAULT_TARGET_LEAGUES = (
     "澳超,罗甲,波兰超,奥甲,奥乙,意甲,意乙,德甲,德乙,法甲,法乙,英超,英冠,英甲,英乙,"
     "荷甲,荷乙,比甲,比乙,西甲,西乙,爱超,爱甲,葡超,葡甲,阿甲,墨西联春,日职联,日职乙,"
-    "韩K联,韩K2联,丹麦甲,苏超,苏冠,瑞士超,瑞士甲,挪超,美职业,巴西甲,巴西乙,智利甲,希腊超"
+    "韩K联,韩K2联,丹麦甲,苏超,苏冠,瑞士超,瑞士甲,挪超,美职业,巴西甲,巴西乙,智利甲,希腊超,欧洲预选,国际友谊,世界杯附加,欧国联"
 )
 _target_leagues_env = os.environ.get("CRAWLER_TARGET_LEAGUES")
 if _target_leagues_env is not None:
