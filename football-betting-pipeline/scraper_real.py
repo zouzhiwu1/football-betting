@@ -795,9 +795,11 @@ class ZhiyunScraper:
             return False
 
     def _safe_name(self, name: str) -> str:
-        """将联赛/队名中的非法文件名字符替换为下划线。"""
-        invalid = '\\\\/:*?\"<>|'
-        return "".join("_" if ch in invalid else ch for ch in (name or "")).strip()
+        """将联赛/队名规范为稳定文件名，避免 shell 显示转义引号。"""
+        s = (name or "").strip()
+        s = re.sub(r"[\\/:*?\"<>|'\s()\[\]{}]+", "_", s)
+        s = re.sub(r"_+", "_", s).strip("_")
+        return s or "unknown"
 
     def _get_cell_text(self, row, col_index):
         """取单元格文本；若 getText 为空则用 JS textContent。"""
