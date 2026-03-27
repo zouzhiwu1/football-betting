@@ -795,9 +795,9 @@ class ZhiyunScraper:
             return False
 
     def _safe_name(self, name: str) -> str:
-        """将联赛/队名规范为稳定文件名，避免 shell 显示转义引号。"""
+        """将联赛/队名中的非法文件名字符替换为下划线（保留括号等常见标记）。"""
         s = (name or "").strip()
-        s = re.sub(r"[\\/:*?\"<>|'\s()\[\]{}]+", "_", s)
+        s = re.sub(r"[\\/:*?\"<>|']+", "_", s)
         s = re.sub(r"_+", "_", s).strip("_")
         return s or "unknown"
 
