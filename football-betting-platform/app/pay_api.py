@@ -92,7 +92,9 @@ def list_orders():
     """
     user_id = _get_user_id()
     if user_id is None:
-        return jsonify({"ok": False, "message": "请先登录"}), 401
+        return jsonify(
+            {"ok": False, "message": "账号已在其他设备登录或登录已过期，请重新登录"}
+        ), 401
     try:
         limit = int(request.args.get("limit", "50"))
     except (TypeError, ValueError):
@@ -116,7 +118,9 @@ def create_order():
     """
     user_id = _get_user_id()
     if user_id is None:
-        return jsonify({"ok": False, "message": "请先登录"}), 401
+        return jsonify(
+            {"ok": False, "message": "账号已在其他设备登录或登录已过期，请重新登录"}
+        ), 401
     data = request.get_json() or {}
     mtype = (data.get("membership_type") or "").strip().lower()
     if mtype not in MEMBERSHIP_TYPES:

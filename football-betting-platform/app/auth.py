@@ -23,9 +23,10 @@ from config import (
 auth_bp = Blueprint("auth", __name__)
 
 
-def _create_token(user_id: int) -> str:
+def _create_token(user_id: int, session_version: int) -> str:
     payload = {
         "sub": str(user_id),  # JWT 规范建议 sub 为字符串
+        "sv": int(session_version),  # session version：用于踢掉旧登录
         "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRE_HOURS),
         "iat": datetime.utcnow(),
     }
@@ -39,7 +40,20 @@ def _verify_token(token: str):
             token = token.decode("utf-8")
         payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
         sub = payload.get("sub")
-        return int(sub) if sub is not None and str(sub).isdigit() else sub
+        sv = payload.get("sv")
+        if sub is None or not str(sub).isdigit():
+            return None
+        if sv is None or not str(sv).isdigit():
+            return None
+        user_id = int(sub)
+        token_sv = int(sv)
+        user = db.session.get(User, user_id)
+        if not user:
+            return None
+        current_sv = int(user.session_version or 1)
+        if token_sv != current_sv:
+            return None
+        return user_id
     except Exception:
         return None
 
@@ -173,7 +187,7 @@ def register():
             if hasattr(request, "app") and request.app.logger:
                 request.app.logger.exception("注册时赠送周会员失败: %s", e)
 
-        token = _create_token(user.id)
+        token = _create_token(user.id, int(user.session_version or 1))
         return jsonify({
             "ok": True,
             "message": "注册成功",
@@ -208,8 +222,8 @@ def login():
     if not user:
         return jsonify({"ok": False, "message": "该手机号未注册"}), 404
 
+    now = datetime.utcnow()
     if code:
-        now = datetime.utcnow()
         rec = (
             VerificationCode.query.filter_by(phone=phone, code=code)
             .filter(VerificationCode.used_at.is_(None))
@@ -220,14 +234,17 @@ def login():
         if not rec:
             return jsonify({"ok": False, "message": "验证码错误或已过期"}), 400
         rec.used_at = now
-        db.session.commit()
     elif password:
         if not user.password_hash or not check_password_hash(user.password_hash, password):
             return jsonify({"ok": False, "message": "密码错误"}), 401
     else:
         return jsonify({"ok": False, "message": "请提供验证码或密码"}), 400
 
-    token = _create_token(user.id)
+    # 单设备登录：每次登录成功都提升会话版本，使旧 token 立即失效
+    user.session_version = int(user.session_version or 1) + 1
+    db.session.commit()
+
+    token = _create_token(user.id, int(user.session_version))
     return jsonify({
         "ok": True,
         "user": user.to_dict(),
@@ -242,7 +259,15 @@ def _current_user_from_bearer() -> tuple[User | None, tuple | None]:
     """
     user_id = get_user_id_from_authorization(request)
     if user_id is None:
-        return None, (jsonify({"ok": False, "message": "请先登录"}), 401)
+        return None, (
+            jsonify(
+                {
+                    "ok": False,
+                    "message": "账号已在其他设备登录或登录已过期，请重新登录",
+                }
+            ),
+            401,
+        )
     user = db.session.get(User, user_id)
     if not user:
         return None, (jsonify({"ok": False, "message": "用户不存在"}), 404)

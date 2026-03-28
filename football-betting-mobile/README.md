@@ -66,61 +66,85 @@ EXPO_PUBLIC_API_BASE_URL=http://192.168.11.2:5001 npx expo start
 - **iOS**：需 **Apple 开发者账号**；正式包使用 **HTTPS** 更符合上架要求。
 - `app.json` 中 `trybx.cn` 的 HTTP ATS 例外、Android `usesCleartextTraffic` 仍可用于开发机访问 `http://…:5001`；正式 API 以 **HTTPS** 为主。
 
-## Get started
+## 备忘录：线上 APK 下载（Nginx，与当前 trybx.cn 服务器一致）
 
-1. Install dependencies
+生产环境用 **Nginx** 对外提供 HTTPS；安装包放在固定目录，由站点配置中的 **`alias`** 映射到 URL。下列路径与策略与当前部署一致，换机部署时可照抄目录与文件名习惯。
 
-   ```bash
-   npm install
-   ```
+### 目录约定（服务器）
 
-2. Start the app
+| 用途 | 路径 |
+| --- | --- |
+| APK（及可选其他分发文件） | `/var/www/trybx-downloads/` |
+| 当前 Android 包文件名示例 | `/var/www/trybx-downloads/football-betting.apk` |
+| Nginx 站点片段 | `/etc/nginx/conf.d/trybx.conf` |
 
-   ```bash
-   npx expo start
-   ```
+**当前线上对外下载链接（与 `trybx.conf` 中 `location /downloads/` 一致）：**
 
-3. 类型检查（可选）
+`https://trybx.cn/downloads/football-betting.apk`
 
-   ```bash
-   npx tsc --noEmit
-   ```
+注意路径是 **`/downloads/`**（复数），不是 `/download/`。写成 `/download/...` 会落到站点的 `location /`，由 Nginx 反代到本机 Flask，通常返回 **404**。
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+创建目录并赋权（示例，用户/组以发行版为准，常见为 `nginx` 或 `www-data`）：
 
 ```bash
-npm run reset-project
+sudo mkdir -p /var/www/trybx-downloads
+sudo chown -R nginx:nginx /var/www/trybx-downloads   # Debian/Ubuntu 可能是 www-data:www-data
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+### 安装 Nginx
 
-### Other setup steps
+**AlmaLinux / Rocky / CentOS / RHEL：**
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+```bash
+sudo dnf install -y nginx    # 或 yum install -y nginx
+sudo systemctl enable --now nginx
+sudo nginx -t && sudo systemctl reload nginx
+```
 
-## Learn more
+**Debian / Ubuntu：**
 
-To learn more about developing your project with Expo, look at the following resources:
+```bash
+sudo apt update && sudo apt install -y nginx
+sudo systemctl enable --now nginx
+sudo nginx -t && sudo systemctl reload nginx
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+### 配置要点（`trybx.conf`）
 
-## Join the community
+在同一域名（如 `trybx.cn`）的 `server` 中，除反代 API/Web 外，为下载目录增加独立 `location`，与线上一致的核心写法是 **`alias` 指向物理目录**（前缀与 `alias` 末尾斜杠需配对，按你实际 URL 调整）：
 
-Join our community of developers creating universal apps.
+```nginx
+# 示例：若对外地址为 https://trybx.cn/downloads/football-betting.apk
+# 则 location 前缀须与 alias 物理路径对应（以下仅为结构示意）
+location /downloads/ {
+    alias /var/www/trybx-downloads/;
+    default_type application/vnd.android.package-archive;
+    # 可选：add_header Content-Disposition "attachment; filename=football-betting.apk";
+}
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+线上实际 `location` 前缀以 `/etc/nginx/conf.d/trybx.conf` 为准；修改后执行：
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+**HTTPS**：证书与 `listen 443 ssl` 可在同文件或其它 `conf.d` 片段中配置；常用 [Let’s Encrypt](https://letsencrypt.org/) + `certbot`（`certbot --nginx -d trybx.cn`）自动续期。
+
+### 更新 APK 后的操作
+
+1. 将 EAS 打完的 APK 上传到服务器，覆盖  
+   `/var/www/trybx-downloads/football-betting.apk`（或与 Nginx/对外链接约定一致的文件名）。  
+2. 一般**无需**重载 Nginx，仅替换文件即可。  
+3. 浏览器或 `curl -I https://trybx.cn/downloads/football-betting.apk` 验证 `200` 与 `Content-Type`。
+
+### 常用自检命令
+
+```bash
+sudo systemctl status nginx --no-pager
+sudo nginx -t
+grep -R "trybx-downloads" /etc/nginx/conf.d/
+ls -la /var/www/trybx-downloads/
+```
+
+

@@ -78,7 +78,13 @@ def api_search():
         return jsonify({"error": "请提供有效日期 YYYYMMDD", "items": []})
     user_id = _get_user_id_from_request()
     if user_id is None:
-        return jsonify({"ok": False, "message": "请先登录", "items": []}), 401
+        return jsonify(
+            {
+                "ok": False,
+                "message": "账号已在其他设备登录或登录已过期，请重新登录",
+                "items": [],
+            }
+        ), 401
     member = is_member(user_id)
     # 可选策略：过期即不能看任何曲线（与默认「非会员可看完场/历史」不同）
     if current_app.config.get("CURVES_REQUIRE_ACTIVE_MEMBERSHIP") and not member:
@@ -154,7 +160,9 @@ def serve_image(date, filename):
         return "", 404
     user_id = _get_user_id_from_request()
     if user_id is None:
-        return jsonify({"ok": False, "message": "请先登录"}), 401
+        return jsonify(
+            {"ok": False, "message": "账号已在其他设备登录或登录已过期，请重新登录"}
+        ), 401
     if current_app.config.get("CURVES_REQUIRE_ACTIVE_MEMBERSHIP") and not is_member(user_id):
         return jsonify({
             "ok": False,

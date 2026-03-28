@@ -13,6 +13,8 @@ class User(db.Model):
     phone = db.Column(db.String(20), unique=True, nullable=False, index=True)
     email = db.Column(db.String(128), nullable=True, index=True)
     password_hash = db.Column(db.String(255), nullable=True)  # 新注册必填，兼容旧数据
+    # 登录会话版本号：每次成功登录自增，旧 token 因版本不匹配而失效（单设备登录）
+    session_version = db.Column(db.Integer, nullable=False, default=1, server_default="1")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     # 会员系统：是否已赠送过周会员（仅一次）

@@ -53,7 +53,9 @@ Page({
         token,
       });
       if (status === 401 || !ok) {
-        wx.showToast({ title: data.message || '请先登录', icon: 'none' });
+        api.clearSession();
+        wx.showToast({ title: '账号已在其他设备登录，请重新登录', icon: 'none' });
+        setTimeout(() => wx.reLaunch({ url: '/pages/login/login' }), 700);
         return;
       }
       isMember = !!data.is_member;
@@ -106,7 +108,9 @@ Page({
         token,
       });
       if (status === 401) {
-        this.setData({ inlineHint: data.message || '登录已失效，请重新登录' });
+        api.clearSession();
+        this.setData({ inlineHint: '账号已在其他设备登录或登录已过期，请重新登录' });
+        setTimeout(() => wx.reLaunch({ url: '/pages/login/login' }), 700);
         this.setData({ searching: false });
         return;
       }

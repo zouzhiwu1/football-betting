@@ -18,6 +18,8 @@ def status():
     """当前登录用户的会员状态。Header: Authorization: Bearer <token>"""
     user_id = _get_user_id()
     if user_id is None:
-        return jsonify({"ok": False, "message": "请先登录"}), 401
+        return jsonify(
+            {"ok": False, "message": "账号已在其他设备登录或登录已过期，请重新登录"}
+        ), 401
     data = get_membership_status(user_id)
     return jsonify({"ok": True, **data})

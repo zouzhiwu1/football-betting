@@ -1,4 +1,5 @@
 import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import DateTimePicker, { DateTimePickerAndroid, type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import {
@@ -10,7 +11,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -22,8 +22,8 @@ import { UI } from '@/constants/ui';
 
 export default function CurvesScreen() {
   const PAGE_SIZE = 3;
-  const { token } = useAuth();
-  const { width: screenWidth } = useWindowDimensions();
+  const router = useRouter();
+  const { token, clearSession } = useAuth();
   const [date, setDate] = useState('');
   const [team, setTeam] = useState('');
   const [items, setItems] = useState<CurveItem[]>([]);
@@ -94,7 +94,10 @@ export default function CurvesScreen() {
     try {
       const { ok, status, data } = await searchCurves(tk, d, teamValue);
       if (status === 401) {
-        Alert.alert('提示', data.message || '登录已失效，请重新登录');
+        await clearSession();
+        Alert.alert('提示', '账号已在其他设备登录或登录已过期，请重新登录', [
+          { text: '确定', onPress: () => router.replace('/(auth)/login') },
+        ]);
         return;
       }
       if (data.error) {
@@ -142,8 +145,6 @@ export default function CurvesScreen() {
   };
 
   const authHeader = token ? { Authorization: `Bearer ${token}` } : undefined;
-  const imageWidth = Math.max(240, screenWidth - 12 * 2 - 10 * 2);
-  const imageHeight = (imageWidth * 17) / 9;
   const visibleItems = items.slice(0, visibleCount);
   const hasMore = visibleCount < items.length;
 
@@ -210,6 +211,7 @@ export default function CurvesScreen() {
           onEndReached={loadMore}
           initialNumToRender={PAGE_SIZE}
           windowSize={4}
+          removeClippedSubviews={false}
           renderItem={({ item: it }) => {
             const uri = curveImageUrl(it.date, it.filename);
             return (
@@ -217,12 +219,14 @@ export default function CurvesScreen() {
                 <Text style={styles.cardTitle}>
                   {it.home} VS {it.away}
                 </Text>
-                <Image
-                  source={{ uri, headers: authHeader }}
-                  style={[styles.img, { width: imageWidth, height: imageHeight }]}
-                  contentFit="contain"
-                  transition={200}
-                />
+                <View style={styles.imgWrap}>
+                  <Image
+                    source={{ uri, headers: authHeader }}
+                    style={styles.img}
+                    contentFit="contain"
+                    transition={200}
+                  />
+                </View>
               </View>
             );
           }}
@@ -308,10 +312,20 @@ const styles = StyleSheet.create({
     borderColor: UI.border,
     padding: 8,
     marginBottom: 10,
-    alignItems: 'center',
+    alignItems: 'stretch',
+    overflow: 'visible',
   },
   cardTitle: { color: UI.text, fontSize: 16, fontWeight: '600', marginBottom: 8, alignSelf: 'stretch' },
-  img: { backgroundColor: UI.bg },
+  imgWrap: {
+    width: '100%',
+    alignSelf: 'stretch',
+    overflow: 'visible',
+  },
+  img: {
+    width: '100%',
+    aspectRatio: 9 / 17,
+    backgroundColor: UI.bg,
+  },
   loadMoreBtn: {
     alignSelf: 'center',
     paddingHorizontal: 14,

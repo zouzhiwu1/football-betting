@@ -14,6 +14,8 @@ cd football-betting-pipeline
 pip install -r requirements.txt
 ```
 
+**说明（本地能跑、服务器报错「No module named …」）**：不是「服务器必须用 .venv、本地不用」，而是**两台机器上实际执行命令的 Python 往往不是同一个**。例如本地习惯 `python3` 且已装过依赖，服务器 cron 用 `python` 指向另一解释器且未装包。解决办法二选一：① 对**定时任务用的那条**解释器执行 `python -m pip install -r requirements.txt`；② 或用虚拟环境并把 cron 里的 `python` 写成该环境的 `python` 绝对路径（与是否叫 `.venv` 无关，本质是「固定用装过依赖的解释器」）。
+
 ## Docker / Linux 服务器：ChromeDriver `Status code was: 127`
 
 若在容器或精简系统里出现：
