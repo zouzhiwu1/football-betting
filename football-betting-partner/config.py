@@ -94,6 +94,7 @@ def partner_promo_bundle(agent_id: int, agent_code: str | None) -> dict:
     code = agent_code or ""
     h5_base = os.environ.get("PARTNER_PROMO_H5_BASE", "").strip().rstrip("/")
     mp_tpl = os.environ.get("PARTNER_PROMO_MP_QR_TARGET", "").strip()
+    web_tpl = os.environ.get("PARTNER_PROMO_WEB_URL", "").strip()
     android_tpl = os.environ.get("PARTNER_PROMO_ANDROID_URL", "").strip()
     ios_tpl = os.environ.get("PARTNER_PROMO_IOS_URL", "").strip()
     mp_entry = os.environ.get(
@@ -109,6 +110,7 @@ def partner_promo_bundle(agent_id: int, agent_code: str | None) -> dict:
         _expand_promo_template(android_tpl, agent_id, code)
     )
     ios_url = _expand_promo_template(ios_tpl, agent_id, code)
+    web_url = _expand_promo_template(web_tpl, agent_id, code)
 
     sep = "&" if "?" in mp_entry else "?"
     miniprogram_path = f"{mp_entry}{sep}agent_id={agent_id}"
@@ -128,6 +130,13 @@ def partner_promo_bundle(agent_id: int, agent_code: str | None) -> dict:
             "configured": bool(mp_url),
             "wechat_scene": scene_suggestion,
             "miniprogram_path": miniprogram_path,
+        },
+        {
+            "id": "web",
+            "title": "WEB端",
+            "hint": "扫码打开 H5/网页注册页；页面应从 URL 中读取 ref 或 agent_id 完成拉新归因。",
+            "qr_url": web_url,
+            "configured": bool(web_url),
         },
         {
             "id": "android",

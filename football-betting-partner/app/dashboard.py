@@ -108,7 +108,7 @@ def partner_stats_summary():
 
 @partner_ui_bp.route("/stats/promo-links", methods=["GET"])
 def partner_promo_links():
-    """代理商推广：小程序 / Android / iOS 二维码所用 URL 与 path、scene 提示。"""
+    """代理商推广：小程序 / WEB / Android / iOS 二维码所用 URL 与 path、scene 提示。"""
     agent, err = require_partner_token()
     if err:
         return err

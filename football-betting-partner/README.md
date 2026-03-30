@@ -78,7 +78,20 @@ curl -s -X POST http://127.0.0.1:5002/api/partner/auth/bootstrap-admin \
   -d '{"login_name":"admin","password":"your-admin-pass"}'
 ```
 
-之后在 `/admin/agents` 为代理商录入：**用户姓名、年龄、电话、银行账户**以及登录名、登录密码、推广码等。
+之后在 `/admin/agents` 为代理商录入：**用户姓名、年龄、电话、收款渠道、收款账号、收款实名**以及登录名、登录密码、推广码等。
+
+## 推广二维码渠道配置
+
+代理商「推广二维码」页支持 4 个渠道：微信小程序、WEB 端、Android、iOS。通过 `.env` 配置：
+
+```env
+PARTNER_PROMO_MP_QR_TARGET=https://你的域名/invite-mp?agent_id={agent_id}
+PARTNER_PROMO_WEB_URL=https://你的域名/register?ref={agent_id}
+PARTNER_PROMO_ANDROID_URL=https://你的域名/downloads/football-betting.apk?ref={agent_id}
+PARTNER_PROMO_IOS_URL=https://apps.apple.com/cn/app/idXXXX?ref={agent_id}
+```
+
+模板变量支持 `{agent_id}` 与 `{agent_code}`。
 
 ## 首个代理商（仅运维/无管理员时的捷径）
 
