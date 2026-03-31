@@ -87,20 +87,21 @@ def _chromedriver_path_webdriver_manager() -> str:
     log = logging.getLogger("crawl_real")
     if CHROME_BINARY_PATH:
         ver = _chromium_semver_from_binary(CHROME_BINARY_PATH)
+        binary_lower = CHROME_BINARY_PATH.lower()
+        is_chromium = "chromium" in binary_lower
+        chrome_type = ChromeType.CHROMIUM if is_chromium else ChromeType.GOOGLE
+        browser_label = "Chromium" if is_chromium else "Google Chrome"
         if ver:
-            log.info(
-                "webdriver-manager: 按 CRAWLER_CHROME_BINARY 解析到浏览器版本 %s，下载匹配 chromedriver",
-                ver,
-            )
             return ChromeDriverManager(
                 driver_version=ver,
-                chrome_type=ChromeType.CHROMIUM,
+                chrome_type=chrome_type,
             ).install()
         log.warning(
-            "无法从 %s 解析版本，回退为按系统 Chromium 探测 chromedriver",
+            "无法从 %s 解析版本，回退为按系统浏览器类型(%s)探测 chromedriver",
             CHROME_BINARY_PATH,
+            browser_label,
         )
-        return ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()
+        return ChromeDriverManager(chrome_type=chrome_type).install()
     return ChromeDriverManager().install()
 
 

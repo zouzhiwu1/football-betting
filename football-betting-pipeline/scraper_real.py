@@ -62,10 +62,17 @@ def _now_in_tz():
 
 
 class ZhiyunScraper:
-    def __init__(self, driver, base_url=BASE_URL, download_dir=DOWNLOAD_DIR):
+    def __init__(
+        self,
+        driver,
+        base_url=BASE_URL,
+        download_dir=DOWNLOAD_DIR,
+        rename_downloaded_file=True,
+    ):
         self.driver = driver
         self.base_url = base_url
         self.download_dir = download_dir
+        self.rename_downloaded_file = rename_downloaded_file
 
     def _wait_page_loaded(self, timeout=WAIT_ELEMENT):
         """等待当前页面 readyState 为 complete，超时则忽略错误。"""
@@ -367,19 +374,27 @@ class ZhiyunScraper:
 
     def _download_excel_for_row(self, wait, row, index, home, away, time_suffix=None):
         """点击当前行的「欧」链接（列表页为「析亚欧」），弹出详情页后点击「导出Excel」下载，再关闭弹窗。"""
-        # 兼容「欧」「析亚欧」等，含欧字的链接或可点击元素
-        europe_links = row.find_elements(By.XPATH, ".//a[contains(.,'欧')]")
-        if not europe_links:
-            europe_links = row.find_elements(By.XPATH, ".//*[contains(text(),'析亚欧') or contains(text(),'欧')]")
-        if not europe_links:
+        # 页面可能在循环中动态刷新；导出前按主客队重新定位一次行，避免点到错场次。
+        refreshed_row = self._find_row_by_teams(home, away)
+        if refreshed_row is not None:
+            row = refreshed_row
+
+        link = self._pick_europe_link(row)
+        if not link:
             row_preview = self._preview_row(row)
             print(f"第 {index} 场比赛未找到「欧」链接，跳过。该行前几列: {row_preview}")
             return
 
         # 优先尝试直接用「欧」链接的 href 打开 1x2 页面；若 href 无效（空或 javascript），则只点击「欧」让站点自己弹出窗口。
-        link = europe_links[0]
         target_href = (link.get_attribute("href") or "").strip()
-        if target_href and not target_href.startswith("javascript:") and target_href != "#":
+        href_lower = target_href.lower()
+        use_direct_href = (
+            bool(target_href)
+            and not target_href.startswith("javascript:")
+            and target_href != "#"
+            and "sclass.aspx" not in href_lower
+        )
+        if use_direct_href:
             # 补全协议相对链接
             if target_href.startswith("//"):
                 target_href = "https:" + target_href
@@ -397,7 +412,7 @@ class ZhiyunScraper:
                 print(f"第 {index} 场 {home} vs {away}：无法打开 1x2 链接 {target_href}：{e}")
                 return
         else:
-            # href 为空或为 javascript 等无效时，直接点击「欧」链接，让站点自身逻辑决定打开的页面
+            # href 为空 / javascript / Sclass 联赛链接时，直接点击元素，交给站点 onclick 打开比赛详情页
             try:
                 original_window = self.driver.current_window_handle
             except NoSuchWindowException:
@@ -698,6 +713,63 @@ class ZhiyunScraper:
             except Exception:
                 pass
 
+    def _find_row_by_teams(self, home: str, away: str):
+        """按主队/客队在当前可见列表里重新定位比赛行；找不到时返回 None。"""
+        try:
+            rows = self._collect_match_rows(WebDriverWait(self.driver, WAIT_ELEMENT), visible_only=MATCH_FILTER_VISIBLE_ONLY)
+        except Exception:
+            return None
+
+        for r in rows:
+            try:
+                r_home = self._get_cell_text(r, COL_HOME)
+                r_away = self._get_cell_text(r, COL_AWAY)
+                if r_home == home and r_away == away:
+                    return r
+            except Exception:
+                continue
+        return None
+
+    def _pick_europe_link(self, row):
+        """
+        选择比赛级「欧/析亚欧」链接，避免误选联赛链接（如 Sclass.aspx?id=650）。
+        优先级：
+        1) 文本含「析亚欧」或「欧」且 href 指向 1x2 页面；
+        2) 文本含「析亚欧」或「欧」且 href 为 javascript/空（交给站点 click 逻辑）；
+        3) 兜底返回第一个候选。
+        """
+        candidates = row.find_elements(By.XPATH, ".//a[contains(normalize-space(.),'析亚欧') or contains(normalize-space(.),'欧')]")
+        if not candidates:
+            return None
+
+        best_js = None
+        for a in candidates:
+            try:
+                href = (a.get_attribute("href") or "").strip()
+            except Exception:
+                href = ""
+            href_lower = href.lower()
+            if "/1x2/" in href_lower or "1x2" in href_lower:
+                return a
+            if "sclass.aspx" in href_lower:
+                continue
+            if not href or href.startswith("javascript:") or href == "#":
+                if best_js is None:
+                    best_js = a
+
+        if best_js is not None:
+            return best_js
+
+        # 最后兜底：返回非联赛链接的第一个
+        for a in candidates:
+            try:
+                href = (a.get_attribute("href") or "").strip().lower()
+            except Exception:
+                href = ""
+            if "sclass.aspx" not in href:
+                return a
+        return candidates[0]
+
     def _save_debug_page_source(self, index, home, away):
         """未找到导出按钮时保存当前页面 HTML，便于排查选择器。输出到 DEBUG_LOG_DIR。"""
         try:
@@ -776,15 +848,17 @@ class ZhiyunScraper:
                     )
                 return False
 
-            safe_home = self._safe_name(home)
-            safe_away = self._safe_name(away)
-            new_name = f"{safe_home}_VS_{safe_away}_{time_suffix}.xls"
-            dest_path = os.path.join(target_dir, new_name)
-
-            if os.path.abspath(new_path) != os.path.abspath(dest_path):
-                if os.path.exists(dest_path):
-                    os.remove(dest_path)
-                os.rename(new_path, dest_path)
+            if self.rename_downloaded_file:
+                safe_home = self._safe_name(home)
+                safe_away = self._safe_name(away)
+                new_name = f"{safe_home}_VS_{safe_away}_{time_suffix}.xls"
+                dest_path = os.path.join(target_dir, new_name)
+                if os.path.abspath(new_path) != os.path.abspath(dest_path):
+                    if os.path.exists(dest_path):
+                        os.remove(dest_path)
+                    os.rename(new_path, dest_path)
+            else:
+                dest_path = new_path
             # 相对路径以下载根目录的父目录为根，显示为 football-betting-data/…（不含仓库文件夹名前缀）
             root = os.path.abspath(os.path.join(self.download_dir, os.pardir))
             rel = os.path.relpath(dest_path, root)
