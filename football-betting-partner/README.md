@@ -20,13 +20,15 @@
 
 会按 `DATABASE_URL` 连接并执行仓库根目录 **`scripts/init_database.sql`**（含 `users`、`payment_orders`、`agents`、`points_ledger` 等全库表）。**会清空上述表的数据**，请勿在生产未备份时执行。
 
-**仅需要 partner 表、且 `users` 表已由 platform 建好**时，可只执行：
+**仅需要 partner 表、且 `users` 表已由 platform 建好**时，推荐执行（仅 `CREATE TABLE`，与全库脚本中 partner 段一致）：
 
 ```bash
-mysql -h … -u … -p football_betting < scripts/add_partner_tables.sql
+mysql -h … -u … -p football_betting < scripts/partner_schema.sql
 ```
 
-用 **DBeaver** 时建议**分段执行**脚本（先 `partner_admins` → `agents` → `points_ledger` → 外键 `ALTER` → 最后 `users`）。若只执行 `points_ledger` 会出现 **1824 / Failed to open the referenced table 'agents'**，说明 **`agents` 尚未创建成功**，请先执行并刷新确认左侧已出现 `agents` 表。
+若 `users` 尚无 `agent_id` 列，按 `partner_schema.sql` 文件末尾注释补列。历史增量脚本 `add_partner_tables.sql` / `migrate_*.sql` / `extend_*.sql` 仅作老旧环境追溯；新环境不必再跑一串 `ALTER`。
+
+用 **DBeaver** 时对整个 `partner_schema.sql` 使用「执行 SQL 脚本」（顺序执行）；若只执行 `points_ledger` 会出现 **1824**，说明 **`agents` 尚未创建**，请从头执行完整文件。
 
 **已有旧版 partner 表**（无 `partner_admins`、无代理商档案字段时）再执行：
 

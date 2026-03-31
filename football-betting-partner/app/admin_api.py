@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 import logging
 import re
+import uuid
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, jsonify, request
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError, OperationalError
 from werkzeug.security import generate_password_hash
 
@@ -21,7 +23,13 @@ from app.contact_format import (
     validate_payout_holder_name,
 )
 from app.dashboard import _parse_month_param, build_monthly_board_dict
-from app.models import Agent, AgentCommissionSettlement, PartnerAdmin
+from app.models import (
+    Agent,
+    AgentCommissionLine,
+    AgentCommissionSettlement,
+    PartnerAdmin,
+    PayoutOrder,
+)
 
 partner_admin_bp = Blueprint("partner_admin_api", __name__, url_prefix="/api/partner/admin")
 
@@ -71,6 +79,119 @@ def _owed_paid_pending_commission_yuan(
     if pending < 0:
         pending = Decimal("0")
     return owed, paid_dec, pending
+
+
+def _month_start_end(ym: str) -> tuple[datetime, datetime]:
+    y, m = map(int, ym.split("-"))
+    start = datetime(y, m, 1)
+    if m == 12:
+        end = datetime(y + 1, 1, 1)
+    else:
+        end = datetime(y, m + 1, 1)
+    return start, end
+
+
+def _mask_phone(phone: object | None) -> str:
+    if phone is None:
+        return "—"
+    p = str(phone).strip()
+    if len(p) >= 11:
+        return f"{p[:3]}****{p[-4:]}"
+    if len(p) >= 7:
+        return f"{p[:2]}****{p[-2:]}"
+    return "****"
+
+
+def _sync_agent_commission_lines(agent: Agent, ym: str) -> None:
+    """
+    将指定月份的注册/充值事件增量写入 agent_commission_lines（幂等）。
+    """
+    import config as _cfg
+
+    start, end = _month_start_end(ym)
+    aid = agent.id
+    reg_factor = Decimal(str(_cfg.PARTNER_REG_FACTOR)).quantize(Decimal("0.0001"))
+    rebate_rate = Decimal(str(agent.current_rate or 0)).quantize(Decimal("0.0001"))
+    commission_per_point = Decimal(str(_cfg.PARTNER_COMMISSION_PER_POINT)).quantize(
+        Decimal("0.0001")
+    )
+
+    # 拉新事件：按 (agent_id, user_id, commission_type=registration) 幂等
+    reg_rows = db.session.execute(
+        text(
+            """
+            SELECT u.id AS user_id, u.phone AS phone, u.created_at AS created_at
+            FROM users u
+            WHERE u.agent_id = :aid
+              AND u.created_at >= :start AND u.created_at < :end
+            """
+        ),
+        {"aid": aid, "start": start, "end": end},
+    ).mappings().all()
+    for r in reg_rows:
+        uid = int(r["user_id"])
+        exists = AgentCommissionLine.query.filter_by(
+            agent_id=aid,
+            user_id=uid,
+            commission_type="registration",
+        ).first()
+        if exists:
+            continue
+        c = AgentCommissionLine(
+            agent_id=aid,
+            user_id=uid,
+            username=_mask_phone(r.get("phone")),
+            commission_type="registration",
+            created_at=r.get("created_at") or datetime.utcnow(),
+            reg_factor=reg_factor,
+            commission_amount=Decimal(str(reg_factor)).quantize(Decimal("0.01")),
+            payment_status="pending",
+        )
+        db.session.add(c)
+
+    # 充值事件：按 (agent_id, payment_order_id) 幂等
+    recharge_rows = db.session.execute(
+        text(
+            """
+            SELECT po.id AS payment_order_id, po.user_id AS user_id, po.total_amount AS total_amount, po.paid_at AS paid_at, u.phone AS phone
+            FROM payment_orders po
+            INNER JOIN users u ON u.id = po.user_id
+            WHERE u.agent_id = :aid
+              AND po.status = 'paid'
+              AND po.paid_at IS NOT NULL
+              AND po.paid_at >= :start AND po.paid_at < :end
+            """
+        ),
+        {"aid": aid, "start": start, "end": end},
+    ).mappings().all()
+    for r in recharge_rows:
+        payment_order_id = str(r["payment_order_id"])
+        exists = AgentCommissionLine.query.filter_by(
+            agent_id=aid,
+            payment_order_id=payment_order_id,
+            commission_type="recharge",
+        ).first()
+        if exists:
+            continue
+        recharge_amount = Decimal(str(r.get("total_amount") or 0)).quantize(
+            Decimal("0.01")
+        )
+        commission_amount = (recharge_amount * rebate_rate * commission_per_point).quantize(
+            Decimal("0.01")
+        )
+        c = AgentCommissionLine(
+            agent_id=aid,
+            user_id=int(r["user_id"]),
+            username=_mask_phone(r.get("phone")),
+            commission_type="recharge",
+            created_at=r.get("paid_at") or datetime.utcnow(),
+            payment_order_id=payment_order_id,
+            recharge_amount=recharge_amount,
+            rebate_rate=rebate_rate,
+            commission_amount=commission_amount,
+            payment_status="pending",
+        )
+        db.session.add(c)
 
 
 def _agent_public_row(a: Agent) -> dict:
@@ -400,7 +521,7 @@ def create_agent():
 
 @partner_admin_bp.route("/agents/<int:agent_id>/commission/settle", methods=["POST"])
 def settle_agent_commission(agent_id: int):
-    """管理员线下打款后登记本次结算金额，累加到代理商已结算总额。"""
+    """管理员线下打款后，按勾选佣金明细批量结算。"""
     admin, err = require_db_admin_token()
     if err:
         return err
@@ -412,81 +533,163 @@ def settle_agent_commission(agent_id: int):
     data = request.get_json(silent=True) or {}
     ym = (data.get("settlement_month") or "").strip()
     if not _SETTLEMENT_MONTH_RE.match(ym):
-        return jsonify(
-            {"ok": False, "message": "请提供有效结算月份 settlement_month（格式 YYYY-MM）"}
-        ), 400
+        return jsonify({"ok": False, "message": "请提供有效结算月份 settlement_month（YYYY-MM）"}), 400
 
-    raw = data.get("amount_yuan")
-    try:
-        amt = Decimal(str(raw)).quantize(Decimal("0.01"))
-    except (InvalidOperation, TypeError, ValueError):
-        return jsonify({"ok": False, "message": "结算金额格式无效"}), 400
-    if amt <= 0:
-        return jsonify({"ok": False, "message": "结算金额须大于 0"}), 400
-
-    ch = (data.get("payment_channel") or "").strip().lower()
-    if ch not in ("alipay", "wechat"):
-        return jsonify(
-            {
-                "ok": False,
-                "message": "请提供有效支付渠道 payment_channel：alipay 或 wechat",
-            }
-        ), 400
-    ref = (data.get("payment_reference") or "").strip()
-    if not ref:
-        return jsonify(
-            {"ok": False, "message": "请填写线下打款订单号 payment_reference"}
-        ), 400
-    if len(ref) > 256:
-        return jsonify({"ok": False, "message": "订单号过长（最多 256 字符）"}), 400
-    note = (data.get("payment_note") or "").strip() or None
-
-    try:
-        owed, paid_dec, pending = _owed_paid_pending_commission_yuan(agent, ym)
-    except Exception:
-        logging.exception("settle_agent_commission pending commission")
-        return jsonify({"ok": False, "message": "无法核算该月待付佣金，请稍后重试"}), 500
-
-    if amt > pending:
-        return jsonify(
-            {
-                "ok": False,
-                "message": (
-                    "结算金额不能超过本月待付佣金。"
-                    f"当月应计佣金 {owed} 元，本月已累计结算 {paid_dec} 元，待付 {pending} 元。"
-                ),
-                "commission_yuan_month": float(owed),
-                "settled_month_total_yuan": float(paid_dec),
-                "pending_commission_yuan": float(pending),
-            }
-        ), 400
-
-    try:
-        prev = Decimal(str(agent.settled_commission_yuan or 0)).quantize(
-            Decimal("0.01")
-        )
-        new_total = prev + amt
-        agent.settled_commission_yuan = new_total
-        row = AgentCommissionSettlement(
+    line_ids = data.get("line_ids") or []
+    # 兼容旧版调用：仅传 amount_yuan + settlement_month（无 line_ids）
+    if not isinstance(line_ids, list) or not line_ids:
+        raw_old = data.get("amount_yuan")
+        try:
+            amt_old = Decimal(str(raw_old)).quantize(Decimal("0.01"))
+        except (InvalidOperation, TypeError, ValueError):
+            return jsonify({"ok": False, "message": "结算金额格式无效"}), 400
+        if amt_old <= 0:
+            return jsonify({"ok": False, "message": "结算金额须大于 0"}), 400
+        try:
+            owed, paid_dec, pending = _owed_paid_pending_commission_yuan(agent, ym)
+        except Exception:
+            logging.exception("settle_agent_commission pending commission")
+            return jsonify({"ok": False, "message": "无法核算该月待付佣金，请稍后重试"}), 500
+        if amt_old > pending:
+            return jsonify(
+                {
+                    "ok": False,
+                    "message": (
+                        "结算金额不能超过本月待付佣金。"
+                        f"当月应计佣金 {owed} 元，本月已累计结算 {paid_dec} 元，待付 {pending} 元。"
+                    ),
+                    "commission_yuan_month": float(owed),
+                    "settled_month_total_yuan": float(paid_dec),
+                    "pending_commission_yuan": float(pending),
+                }
+            ), 400
+        ch_old = (data.get("payment_channel") or "").strip().lower()
+        if ch_old not in ("alipay", "wechat"):
+            return jsonify({"ok": False, "message": "请提供有效支付渠道 payment_channel：alipay 或 wechat"}), 400
+        ref_old = (data.get("payment_reference") or "").strip()
+        if not ref_old:
+            return jsonify({"ok": False, "message": "请填写线下打款订单号 payment_reference"}), 400
+        note_old = (data.get("payment_note") or "").strip() or None
+        prev_old = Decimal(str(agent.settled_commission_yuan or 0)).quantize(Decimal("0.01"))
+        new_total_old = (prev_old + amt_old).quantize(Decimal("0.01"))
+        agent.settled_commission_yuan = new_total_old
+        row_old = AgentCommissionSettlement(
             partner_admin_id=admin.id,
             agent_id=agent_id,
             settlement_month=ym,
-            payment_channel=ch,
-            payment_reference=ref,
-            payment_note=note,
-            amount_yuan=amt,
+            payment_channel=ch_old,
+            payment_reference=ref_old,
+            payment_note=note_old,
+            amount_yuan=amt_old,
         )
-        db.session.add(row)
+        db.session.add(row_old)
         db.session.commit()
         return jsonify(
             {
                 "ok": True,
-                "settled_commission_yuan": float(new_total),
-                "amount_yuan": float(amt),
-                "settlement_id": row.id,
+                "settled_commission_yuan": float(new_total_old),
+                "amount_yuan": float(amt_old),
+                "settlement_id": row_old.id,
                 "settlement_month": ym,
-                "payment_channel": ch,
-                "payment_reference": ref,
+                "payment_channel": ch_old,
+                "payment_reference": ref_old,
+            }
+        )
+    try:
+        line_ids = [int(x) for x in line_ids]
+    except Exception:
+        return jsonify({"ok": False, "message": "line_ids 格式无效"}), 400
+
+    raw = data.get("paid_amount")
+    try:
+        paid_amount = Decimal(str(raw)).quantize(Decimal("0.01"))
+    except (InvalidOperation, TypeError, ValueError):
+        return jsonify({"ok": False, "message": "实付金额 paid_amount 格式无效"}), 400
+    if paid_amount <= 0:
+        return jsonify({"ok": False, "message": "实付金额须大于 0"}), 400
+
+    ref = (data.get("payout_reference") or "").strip()
+    if not ref:
+        return jsonify({"ok": False, "message": "请填写线下打款凭证号 payout_reference"}), 400
+    if len(ref) > 256:
+        return jsonify({"ok": False, "message": "凭证号过长（最多 256 字符）"}), 400
+    remark = (data.get("remark") or "").strip() or None
+
+    try:
+        _sync_agent_commission_lines(agent, ym)
+        db.session.flush()
+
+        rows = AgentCommissionLine.query.filter(
+            AgentCommissionLine.id.in_(line_ids),
+            AgentCommissionLine.agent_id == agent_id,
+        ).with_for_update().all()
+        if len(rows) != len(set(line_ids)):
+            return jsonify({"ok": False, "message": "部分佣金明细不存在或不属于该代理商"}), 400
+        if any((r.payment_status or "pending") != "pending" for r in rows):
+            return jsonify({"ok": False, "message": "仅可结算待支付（pending）佣金明细"}), 400
+
+        total = Decimal("0.00")
+        for r in rows:
+            total += Decimal(str(r.commission_amount or 0))
+        total = total.quantize(Decimal("0.01"))
+        if total != paid_amount:
+            return jsonify(
+                {
+                    "ok": False,
+                    "message": f"实付金额与勾选明细佣金合计不一致：合计 {total} 元，实付 {paid_amount} 元",
+                    "selected_total": float(total),
+                    "paid_amount": float(paid_amount),
+                }
+            ), 400
+
+        now = datetime.utcnow()
+        payout = PayoutOrder(
+            order_id=f"PO{now.strftime('%Y%m%d%H%M%S')}{str(uuid.uuid4().hex[:6]).upper()}",
+            agent_id=agent_id,
+            total_amount=paid_amount,
+            paid_at=now,
+            paid_by_admin_id=admin.id,
+            payout_reference=ref,
+            status="paid",
+            remark=remark,
+        )
+        db.session.add(payout)
+        db.session.flush()
+
+        batch_id = uuid.uuid4().hex
+        for r in rows:
+            r.payment_status = "paid"
+            r.paid_at = now
+            r.paid_by_admin_id = admin.id
+            r.payout_reference = ref
+            r.payment_batch_id = batch_id
+            r.payout_order_id = payout.id
+
+        # 兼容旧字段：累计已结算
+        prev = Decimal(str(agent.settled_commission_yuan or 0)).quantize(Decimal("0.01"))
+        agent.settled_commission_yuan = (prev + paid_amount).quantize(Decimal("0.01"))
+
+        # 兼容旧结算流水表：保留一条聚合记录
+        legacy = AgentCommissionSettlement(
+            partner_admin_id=admin.id,
+            agent_id=agent_id,
+            settlement_month=ym,
+            payment_channel=None,
+            payment_reference=ref,
+            payment_note=remark,
+            amount_yuan=paid_amount,
+        )
+        db.session.add(legacy)
+        db.session.commit()
+        return jsonify(
+            {
+                "ok": True,
+                "payout_order_id": payout.id,
+                "order_id": payout.order_id,
+                "payment_batch_id": batch_id,
+                "paid_amount": float(paid_amount),
+                "line_count": len(rows),
+                "settled_commission_yuan": float(agent.settled_commission_yuan or 0),
             }
         )
     except OperationalError:
@@ -514,6 +717,83 @@ def admin_agent_monthly_board(agent_id: int):
     except Exception:
         logging.exception("admin_agent_monthly_board")
         return jsonify({"ok": False, "message": "查询失败"}), 500
+
+
+@partner_admin_bp.route("/agents/<int:agent_id>/commission-lines", methods=["GET"])
+def admin_agent_commission_lines(agent_id: int):
+    """管理员查看代理商佣金明细（统一拉新/充值）。"""
+    _, err = require_db_admin_token()
+    if err:
+        return err
+    agent = db.session.get(Agent, agent_id)
+    if not agent:
+        return jsonify({"ok": False, "message": "代理商不存在"}), 404
+
+    ym = _parse_month_param(request.args.get("month"))
+    if not _SETTLEMENT_MONTH_RE.match(ym):
+        return jsonify({"ok": False, "message": "month 参数格式错误，应为 YYYY-MM"}), 400
+    try:
+        _sync_agent_commission_lines(agent, ym)
+        db.session.commit()
+        start, end = _month_start_end(ym)
+        rows = (
+            AgentCommissionLine.query.filter(
+                AgentCommissionLine.agent_id == agent_id,
+                AgentCommissionLine.created_at >= start,
+                AgentCommissionLine.created_at < end,
+            )
+            .order_by(AgentCommissionLine.created_at.desc(), AgentCommissionLine.id.desc())
+            .all()
+        )
+        total = Decimal("0.00")
+        pending = Decimal("0.00")
+        items = []
+        for r in rows:
+            amt = Decimal(str(r.commission_amount or 0)).quantize(Decimal("0.01"))
+            total += amt
+            if (r.payment_status or "pending") == "pending":
+                pending += amt
+            if r.commission_type == "registration":
+                remark = f"reg_factor={float(r.reg_factor or 0):g}"
+            else:
+                remark = (
+                    f"充值金额={float(r.recharge_amount or 0):.2f}，"
+                    f"返点率={float(r.rebate_rate or 0) * 100:.2f}%"
+                )
+            items.append(
+                {
+                    "id": int(r.id),
+                    "user_id": int(r.user_id),
+                    "username": r.username,
+                    "commission_type": r.commission_type,
+                    "commission_amount": float(amt),
+                    "remark": remark,
+                    "created_at": r.created_at.isoformat(sep=" ", timespec="seconds")
+                    if r.created_at
+                    else None,
+                    "payment_status": r.payment_status,
+                    "paid_at": r.paid_at.isoformat(sep=" ", timespec="seconds")
+                    if r.paid_at
+                    else None,
+                    "payment_batch_id": r.payment_batch_id,
+                }
+            )
+        return jsonify(
+            {
+                "ok": True,
+                "month": ym,
+                "items": items,
+                "summary": {
+                    "commission_total": float(total.quantize(Decimal("0.01"))),
+                    "pending_total": float(pending.quantize(Decimal("0.01"))),
+                    "line_count": len(items),
+                },
+            }
+        )
+    except Exception:
+        db.session.rollback()
+        logging.exception("admin_agent_commission_lines")
+        return jsonify({"ok": False, "message": "佣金明细查询失败"}), 500
 
 
 @partner_admin_bp.route("/agents/<int:agent_id>", methods=["GET"])

@@ -9,7 +9,7 @@ from sqlalchemy import text
 import config as _cfg
 from app import db
 from app.auth_partner import require_partner_token
-from app.models import Agent
+from app.models import Agent, AgentCommissionLine
 
 partner_ui_bp = Blueprint("partner_api", __name__, url_prefix="/api/partner")
 
@@ -236,6 +236,53 @@ def build_monthly_board_dict(agent: Agent, ym: str) -> dict:
 
     settled_total = round(float(agent.settled_commission_yuan or 0), 2)
 
+    try:
+        commission_rows = (
+            AgentCommissionLine.query.filter(
+                AgentCommissionLine.agent_id == aid,
+                AgentCommissionLine.created_at >= start,
+                AgentCommissionLine.created_at < end,
+            )
+            .order_by(AgentCommissionLine.created_at.desc(), AgentCommissionLine.id.desc())
+            .all()
+        )
+    except Exception:
+        logging.exception("partner dashboard commission_lines query")
+        commission_rows = []
+    commission_lines = []
+    for row in commission_rows:
+        created_at = row.created_at
+        created_at_str = (
+            created_at.isoformat(sep=" ", timespec="seconds")
+            if hasattr(created_at, "isoformat")
+            else str(created_at)
+        )
+        paid_at = row.paid_at
+        paid_at_str = (
+            paid_at.isoformat(sep=" ", timespec="seconds")
+            if hasattr(paid_at, "isoformat")
+            else ("—" if paid_at is None else str(paid_at))
+        )
+        ctype = "拉新" if row.commission_type == "registration" else "充值"
+        if row.commission_type == "registration":
+            remark = f"拉新系数 {float(row.reg_factor or 0):.4f}"
+        else:
+            recharge_amt = float(row.recharge_amount or 0)
+            rebate_pct = float(row.rebate_rate or 0) * 100
+            remark = f"充值金额 {recharge_amt:.2f} 元，返点率 {rebate_pct:.2f}%"
+        commission_lines.append(
+            {
+                "id": int(row.id),
+                "username": row.username or "—",
+                "commission_type": ctype,
+                "commission_amount": round(float(row.commission_amount or 0), 2),
+                "remark": remark,
+                "created_at": created_at_str,
+                "payment_status": row.payment_status or "pending",
+                "paid_at": paid_at_str,
+            }
+        )
+
     return {
         "ok": True,
         "month": ym,
@@ -255,6 +302,7 @@ def build_monthly_board_dict(agent: Agent, ym: str) -> dict:
         "referrals": referrals,
         "recharges": recharge_list,
         "recharges_total_yuan": round(recharge_sum, 2),
+        "commission_lines": commission_lines,
         "notes": {
             "formula": "总业绩=拉新业绩+充值业绩；积分=总业绩×本月返点率；佣金=积分×积分系数。",
             "ledger": "points_ledger_month 为当月流水汇总（settlement_month 或创建时间落在本月）。",

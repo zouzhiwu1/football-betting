@@ -54,24 +54,13 @@
 
 <div id="kpi" class="kpi-grid"></div>
 
-<h2 class="section">拉新列表明细</h2>
+<h2 class="section">佣金明细</h2>
 <div class="table-wrap card" style="margin-top:0;padding:0;">
-  <table class="dash" id="tbl_ref">
-    <thead><tr><th>用户标识 (脱敏)</th><th>注册时间</th><th>注册奖励</th><th>状态</th></tr></thead>
-    <tbody id="tbody_ref"><tr><td colspan="4" class="muted">请选择月份并查询</td></tr></tbody>
+  <table class="dash" id="tbl_commission">
+    <thead><tr><th>用户名</th><th>佣金类型</th><th>佣金（元）</th><th>备注</th><th>日期时间</th><th>支付状态</th><th>支付日期时间</th></tr></thead>
+    <tbody id="tbody_commission"><tr><td colspan="7" class="muted">请选择月份并查询</td></tr></tbody>
   </table>
 </div>
-
-<h2 class="section" style="margin-top:28px;">充值列表明细</h2>
-<div class="table-wrap card" style="margin-top:0;padding:0;">
-  <table class="dash" id="tbl_pay">
-    <thead><tr><th>贡献用户</th><th>充值金额</th><th>支付时间</th></tr></thead>
-    <tbody id="tbody_pay"><tr><td colspan="3" class="muted">请选择月份并查询</td></tr></tbody>
-    <tfoot id="tfoot_pay" style="display:none;"><tr><td>合计</td><td id="pay_total">—</td><td></td></tr></tfoot>
-  </table>
-</div>
-
-<p id="notes" class="muted" style="margin-top:16px;font-size:12px;line-height:1.5;"></p>
 
 <div class="dash-foot">
   <a class="text-link" href="{{ partner_url_prefix }}/">返回首页</a>
@@ -147,32 +136,22 @@
       }
       var s = j.summary || {};
       renderKpi(s);
-      var tbR = document.getElementById('tbody_ref');
-      if (!j.referrals || !j.referrals.length) {
-        tbR.innerHTML = '<tr><td colspan="4" class="muted">本月暂无拉新记录</td></tr>';
+      var tb = document.getElementById('tbody_commission');
+      if (!j.commission_lines || !j.commission_lines.length) {
+        tb.innerHTML = '<tr><td colspan="7" class="muted">本月暂无佣金明细</td></tr>';
       } else {
-        tbR.innerHTML = j.referrals.map(function (r) {
-          return '<tr><td>' + esc(r.user_mask) + '</td><td>' + esc(r.registered_at) + '</td><td>' + esc(r.register_reward) + '</td><td>' + esc(r.status) + '</td></tr>';
+        tb.innerHTML = j.commission_lines.map(function (r) {
+          return '<tr>'
+            + '<td>' + esc(r.username) + '</td>'
+            + '<td>' + esc(r.commission_type) + '</td>'
+            + '<td>' + esc(r.commission_amount) + '</td>'
+            + '<td>' + esc(r.remark) + '</td>'
+            + '<td>' + esc(r.created_at) + '</td>'
+            + '<td>' + esc(r.payment_status) + '</td>'
+            + '<td>' + esc(r.paid_at) + '</td>'
+            + '</tr>';
         }).join('');
       }
-      var tbP = document.getElementById('tbody_pay');
-      var foot = document.getElementById('tfoot_pay');
-      if (!j.recharges || !j.recharges.length) {
-        tbP.innerHTML = '<tr><td colspan="3" class="muted">本月暂无充值记录</td></tr>';
-        foot.style.display = 'none';
-      } else {
-        tbP.innerHTML = j.recharges.map(function (r) {
-          return '<tr><td>' + esc(r.user_mask) + '</td><td>' + esc(r.amount_yuan) + ' 元</td><td>' + esc(r.paid_at) + '</td></tr>';
-        }).join('');
-        document.getElementById('pay_total').textContent = (j.recharges_total_yuan != null ? j.recharges_total_yuan : '—') + ' 元';
-        foot.style.display = '';
-      }
-      var note = [];
-      if (j.notes) {
-        if (j.notes.formula) note.push(j.notes.formula);
-        if (j.notes.ledger) note.push(j.notes.ledger);
-      }
-      document.getElementById('notes').textContent = note.join(' ');
     }).catch(function () { showErr('网络或服务异常'); });
   }
 

@@ -1,4 +1,7 @@
--- 已合并到仓库根目录 scripts/init_database.sql（全库唯一维护的初始化脚本）。
--- 请执行：
---   mysql -h HOST -u USER -p YOUR_DATABASE < ../../scripts/init_database.sql
--- 或使用：python scripts/init_database.py（读取 partner/.env 中的 DATABASE_URL）
+-- 空库 / 可清空重建时：请用仓库根目录 scripts/init_database.sql（全库 DROP+CREATE）。
+--
+-- 仅需 Partner 四张表（CREATE ONLY、与 init_database 中 partner 段一致）：
+--   mysql -h HOST -u USER -p YOUR_DATABASE < scripts/partner_schema.sql
+--
+-- 或使用：cd football-betting-partner && .venv/bin/python scripts/init_database.py
+-- （读取 DATABASE_URL 并执行根目录 ../../scripts/init_database.sql）

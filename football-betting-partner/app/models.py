@@ -74,6 +74,82 @@ class AgentCommissionSettlement(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+class PayoutOrder(db.Model):
+    """佣金支付主表：一次线下打款一条记录。"""
+
+    __tablename__ = "payout_orders"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    order_id = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    agent_id = db.Column(
+        db.Integer,
+        db.ForeignKey("agents.id"),
+        nullable=False,
+        index=True,
+    )
+    total_amount = db.Column(db.Numeric(14, 2), nullable=False)
+    paid_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    paid_by_admin_id = db.Column(
+        db.Integer,
+        db.ForeignKey("partner_admins.id"),
+        nullable=True,
+        index=True,
+    )
+    payout_reference = db.Column(db.String(256), nullable=False)
+    status = db.Column(db.String(16), nullable=False, default="paid", index=True)
+    remark = db.Column(db.Text(), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+
+class AgentCommissionLine(db.Model):
+    """佣金支付明细：一条行代表一个可计费业务事件（拉新/充值）。"""
+
+    __tablename__ = "agent_commission_lines"
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    agent_id = db.Column(
+        db.Integer,
+        db.ForeignKey("agents.id"),
+        nullable=False,
+        index=True,
+    )
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    username = db.Column(db.String(128), nullable=False, default="")
+    commission_type = db.Column(db.String(16), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    # 拉新快照
+    reg_factor = db.Column(db.Numeric(14, 4), nullable=True)
+    # 充值快照
+    payment_order_id = db.Column(db.String(64), nullable=True, index=True)
+    recharge_amount = db.Column(db.Numeric(14, 2), nullable=True)
+    rebate_rate = db.Column(db.Numeric(6, 4), nullable=True)
+
+    commission_amount = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    payment_status = db.Column(db.String(16), nullable=False, default="pending", index=True)
+    paid_at = db.Column(db.DateTime, nullable=True, index=True)
+    paid_by_admin_id = db.Column(
+        db.Integer,
+        db.ForeignKey("partner_admins.id"),
+        nullable=True,
+        index=True,
+    )
+    payout_reference = db.Column(db.String(256), nullable=True)
+    payment_batch_id = db.Column(db.String(64), nullable=True, index=True)
+    payout_order_id = db.Column(
+        db.Integer,
+        db.ForeignKey("payout_orders.id"),
+        nullable=True,
+        index=True,
+    )
+
+
 class PointsLedger(db.Model):
     __tablename__ = "points_ledger"
 

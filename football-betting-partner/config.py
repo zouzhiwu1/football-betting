@@ -54,6 +54,10 @@ PARTNER_YUAN_PER_VALID_REGISTRATION = float(
 PARTNER_COMMISSION_PER_POINT = float(
     os.environ.get("PARTNER_COMMISSION_PER_POINT", "1")
 )
+# 拉新佣金系数（用于 registration 明细行快照与金额计算）
+PARTNER_REG_FACTOR = float(
+    os.environ.get("PARTNER_REG_FACTOR", "1")
+)
 # 视为「注册奖励」类积分流水的 event_type（可逗号分隔）
 PARTNER_LEDGER_EVENT_TYPES_REG = tuple(
     x.strip()
